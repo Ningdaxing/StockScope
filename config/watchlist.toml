@@ -1,0 +1,13 @@
+[defaults]
+benchmark = "SPY"
+
+[groups]
+etfs = ["QQQM", "VOO", "SPY", "SMH", "SOXX", "ITA", "SCHD", "VYM", "EWY"]
+core_growth = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "AVGO", "AMD", "TSM", "MU","SNDK"]
+defense_space = ["LMT", "NOC", "RTX", "PLTR"]
+dividend = ["KO", "PG", "PEP", "JNJ", "XOM", "CVX"]
+
+[tickers]
+manual = []
+
+[name_overrides]

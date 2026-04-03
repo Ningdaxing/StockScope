@@ -1,0 +1,10 @@
+[project]
+name = "stockscope"
+version = "0.1.0"
+description = "Lightweight stock and ETF signal screener"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["yfinance>=1.2.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

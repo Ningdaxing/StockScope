@@ -1,0 +1,45 @@
+# StockScope
+
+StockScope 是一个轻量级的股票与 ETF 研究型 MVP，当前重点解决这些问题：
+
+- 对美股个股和 ETF 做买点信号筛选
+- 给标的生成基础的质量分、估值分、趋势分
+- 输出 CSV、HTML 看板和命令行摘要
+
+第一版使用 Yahoo Finance 的公开数据接口，优先满足“先跑起来、先能分析”的目标。它更适合个人研究，不适合直接当成生产级市场数据系统。
+
+## 当前功能
+
+- 按观察池拉取价格和基础摘要数据
+- 对个股计算质量、估值、趋势和入场时机分数
+- 对 ETF 计算简化估值、趋势和入场时机分数
+- 生成以下输出文件：
+  - `signals.csv`
+  - `dashboard.html`
+  - 终端摘要
+
+## 快速开始
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install yfinance
+PYTHONPATH=src .venv/bin/python -m stockscope.cli run
+```
+
+运行结果会写入 `outputs/latest/` 目录。
+
+## 项目结构
+
+```text
+config/watchlist.toml     观察池和分组配置
+src/stockscope/           核心代码
+tests/                    打分逻辑单元测试
+outputs/                  生成的报告文件
+```
+
+## 说明
+
+- 当前版本主要覆盖美股个股和 ETF。
+- A 股后续可以通过新增抓取器接入。
+- Yahoo 的公开接口可能变化；如果后面要提升稳定性，建议迁移到 `Polygon + SEC`。
+- 推荐使用当前项目目录下的 `.venv` 作为运行环境。
