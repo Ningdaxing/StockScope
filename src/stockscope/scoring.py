@@ -3,13 +3,27 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from stockscope.models import Fundamentals, PriceSnapshot, ScoredTicker
+from stockscope.models import (
+    EtfEntryConfig,
+    EtfValuationConfig,
+    Fundamentals,
+    PositionConfig,
+    PriceSnapshot,
+    QualityConfig,
+    ScoredTicker,
+    ScoringConfig,
+    StockEntryConfig,
+    StockValuationConfig,
+    TrendConfig,
+)
 
 
 def score_ticker(
     fundamentals: Fundamentals,
     price: PriceSnapshot,
     benchmark_price: PriceSnapshot | None = None,
+    *,
+    config: ScoringConfig | None = None,
 ) -> ScoredTicker:
     """对单个标的执行完整打分并组装最终输出。
 
@@ -17,18 +31,33 @@ def score_ticker(
     - 串联质量分、估值分、趋势分和入场分
     - 生成一条可直接写入报表的结果记录
     """
+    if config is None:
+        config = ScoringConfig.defaults()
+
     asset_type = normalize_asset_type(fundamentals.quote_type)
-    quality_score = score_quality(fundamentals) if asset_type == "STOCK" else None
-    valuation_score = score_valuation(fundamentals, asset_type)
-    trend_score = score_trend(price, benchmark_price)
-    entry_score, signal, note = score_entry(
-        asset_type=asset_type,
-        quality_score=quality_score,
-        valuation_score=valuation_score,
-        trend_score=trend_score,
-        price=price,
-        fundamentals=fundamentals,
-    )
+    trend_score = score_trend(price, benchmark_price, config=config.trend)
+
+    if asset_type == "ETF":
+        quality_score = None
+        valuation_score = score_etf_valuation(fundamentals, config=config.etf_valuation)
+        entry_score, signal, note = score_etf_entry(
+            valuation_score=valuation_score,
+            trend_score=trend_score,
+            price=price,
+            config=config,
+        )
+    else:
+        quality_score = score_quality(fundamentals, config=config.quality)
+        valuation_score = score_stock_valuation(fundamentals, config=config.stock_valuation)
+        entry_score, signal, note = score_stock_entry(
+            quality_score=quality_score,
+            valuation_score=valuation_score,
+            trend_score=trend_score,
+            price=price,
+            fundamentals=fundamentals,
+            config=config,
+        )
+
     return ScoredTicker(
         symbol=fundamentals.symbol,
         asset_type=asset_type,
@@ -70,7 +99,7 @@ def normalize_asset_type(quote_type: str) -> str:
     return "STOCK"
 
 
-def score_quality(f: Fundamentals) -> int:
+def score_quality(f: Fundamentals, *, config: QualityConfig) -> int:
     """计算个股质量分。
 
     作用：
@@ -78,119 +107,180 @@ def score_quality(f: Fundamentals) -> int:
     - 重点衡量增长、利润率、负债和现金流表现
     - 用来过滤基本面恶化的公司
     """
-    score = 50
-    score += band_score(f.revenue_growth, good=0.08, ok=0.03, bad=-0.05, weight=12)
-    score += band_score(f.earnings_growth, good=0.10, ok=0.03, bad=-0.08, weight=12)
-    score += margin_score(f.gross_margins, good=0.45, ok=0.30, bad=0.15, weight=8)
-    score += margin_score(f.profit_margins, good=0.18, ok=0.10, bad=0.03, weight=10)
-    score += roe_score(f.return_on_equity, good=0.15, ok=0.10, bad=0.05, weight=10)
-    score += inverse_score(f.debt_to_equity, good=60, ok=120, bad=220, weight=10)
-    score += cashflow_score(f.free_cashflow, f.operating_cashflow, weight=8)
+    q = config
+    score = q.base
+    score += band_score(f.revenue_growth, good=q.revenue_growth.good, ok=q.revenue_growth.ok, bad=q.revenue_growth.bad, weight=q.revenue_growth.weight)
+    score += band_score(f.earnings_growth, good=q.earnings_growth.good, ok=q.earnings_growth.ok, bad=q.earnings_growth.bad, weight=q.earnings_growth.weight)
+    score += margin_score(f.gross_margins, good=q.gross_margins.good, ok=q.gross_margins.ok, bad=q.gross_margins.bad, weight=q.gross_margins.weight)
+    score += margin_score(f.profit_margins, good=q.profit_margins.good, ok=q.profit_margins.ok, bad=q.profit_margins.bad, weight=q.profit_margins.weight)
+    score += roe_score(f.return_on_equity, good=q.return_on_equity.good, ok=q.return_on_equity.ok, bad=q.return_on_equity.bad, weight=q.return_on_equity.weight)
+    score += inverse_score(f.debt_to_equity, good=q.debt_to_equity.good, ok=q.debt_to_equity.ok, bad=q.debt_to_equity.bad, weight=q.debt_to_equity.weight)
+    score += cashflow_score(f.free_cashflow, f.operating_cashflow, weight=q.cashflow_weight)
     return clamp(score)
 
 
-def score_valuation(f: Fundamentals, asset_type: str) -> int:
-    """计算估值分。
+def score_stock_valuation(f: Fundamentals, *, config: StockValuationConfig) -> int:
+    """计算个股估值分。
 
     作用：
     - 评估当前估值是否偏贵
-    - 针对股票和 ETF 使用不同阈值
+    - 重点参考 PE、预期 PE、PS、EV/EBITDA
     - 用来降低高估值买入的风险
     """
-    score = 50
-    if asset_type == "ETF":
-        score += inverse_score(f.trailing_pe, good=18, ok=24, bad=32, weight=12)
-        score += inverse_score(f.forward_pe, good=17, ok=22, bad=28, weight=12)
-        score += yield_score(f.dividend_yield, good=0.03, ok=0.015, weight=6)
-        return clamp(score)
-
-    score += inverse_score(f.trailing_pe, good=18, ok=28, bad=45, weight=12)
-    score += inverse_score(f.forward_pe, good=17, ok=24, bad=38, weight=12)
-    score += inverse_score(f.price_to_sales, good=3, ok=6, bad=12, weight=8)
-    score += inverse_score(f.enterprise_to_ebitda, good=12, ok=18, bad=30, weight=8)
+    v = config
+    score = v.base
+    score += inverse_score(f.trailing_pe, good=v.trailing_pe.good, ok=v.trailing_pe.ok, bad=v.trailing_pe.bad, weight=v.trailing_pe.weight)
+    score += inverse_score(f.forward_pe, good=v.forward_pe.good, ok=v.forward_pe.ok, bad=v.forward_pe.bad, weight=v.forward_pe.weight)
+    score += inverse_score(f.price_to_sales, good=v.price_to_sales.good, ok=v.price_to_sales.ok, bad=v.price_to_sales.bad, weight=v.price_to_sales.weight)
+    score += inverse_score(f.enterprise_to_ebitda, good=v.enterprise_to_ebitda.good, ok=v.enterprise_to_ebitda.ok, bad=v.enterprise_to_ebitda.bad, weight=v.enterprise_to_ebitda.weight)
     return clamp(score)
 
 
-def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None) -> int:
+def score_etf_valuation(f: Fundamentals, *, config: EtfValuationConfig) -> int:
+    """计算 ETF 估值分。
+
+    作用：
+    - 对 ETF 使用更轻量的估值逻辑
+    - 重点参考 PE、预期 PE 和股息率
+    """
+    v = config
+    score = v.base
+    score += inverse_score(f.trailing_pe, good=v.trailing_pe.good, ok=v.trailing_pe.ok, bad=v.trailing_pe.bad, weight=v.trailing_pe.weight)
+    score += inverse_score(f.forward_pe, good=v.forward_pe.good, ok=v.forward_pe.ok, bad=v.forward_pe.bad, weight=v.forward_pe.weight)
+    score += yield_score(f.dividend_yield, good=v.dividend_yield.good, ok=v.dividend_yield.ok, weight=v.dividend_yield.weight)
+    return clamp(score)
+
+
+def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, config: TrendConfig) -> int:
     """计算趋势分。
 
     作用：
     - 结合均线位置、回撤幅度和相对强弱判断趋势状态
     - 给最终买点判断补充技术面依据
     """
-    score = 50
+    t = config
+    score = t.base
     if price.current_price and price.sma20 and price.current_price >= price.sma20:
-        score += 10
+        score += t.sma20_bonus
     if price.current_price and price.sma60 and price.current_price >= price.sma60:
-        score += 12
+        score += t.sma60_bonus
     if price.current_price and price.sma120 and price.current_price >= price.sma120:
-        score += 8
+        score += t.sma120_bonus
 
     drawdown = _drawdown_from_high(price.current_price, price.high_52w)
     if drawdown is not None:
-        if -0.18 <= drawdown <= -0.03:
-            score += 8
-        elif drawdown < -0.35:
-            score -= 10
+        if t.drawdown_mild_lower <= drawdown <= t.drawdown_mild_upper:
+            score += t.drawdown_mild_bonus
+        elif drawdown < t.drawdown_severe_threshold:
+            score -= t.drawdown_severe_penalty
 
     rel_strength = relative_strength(price.return_6m, benchmark_price.return_6m if benchmark_price else None)
     if rel_strength is not None:
-        if rel_strength > 0.05:
-            score += 10
-        elif rel_strength < -0.05:
-            score -= 8
+        if rel_strength > t.rs_strong_threshold:
+            score += t.rs_strong_bonus
+        elif rel_strength < t.rs_weak_threshold:
+            score -= t.rs_weak_penalty
     return clamp(score)
 
 
-def score_entry(
+def score_stock_entry(
     *,
-    asset_type: str,
-    quality_score: int | None,
+    quality_score: int,
     valuation_score: int,
     trend_score: int,
     price: PriceSnapshot,
     fundamentals: Fundamentals,
+    config: ScoringConfig,
 ) -> tuple[int, str, str]:
-    """综合生成入场分、信号等级和说明标签。
+    """综合生成个股入场分、信号等级和说明标签。
 
     作用：
-    - 把估值、趋势、质量三个维度压缩成最终入场判断
-    - 对财报临近、离均线过远等情况做额外修正
+    - 按个股逻辑综合估值、趋势、质量三个维度
+    - 对财报临近、离均线过远、质量过弱等情况做修正
     - 输出 A/B/C/D 信号供报表展示
     """
-    score = round((valuation_score * 0.4) + (trend_score * 0.4) + ((quality_score or 60) * 0.2))
+    e = config.stock_entry
+    score = round((valuation_score * e.valuation_weight) + (trend_score * e.trend_weight) + (quality_score * e.quality_weight))
     notes: list[str] = []
+    score += score_position_adjustment(price, notes, config=config.position)
 
-    distance = _pct_diff(price.current_price, price.sma60)
-    if distance is not None:
-        if abs(distance) <= 0.03:
-            score += 8
-            notes.append("near_60d_ma")
-        elif distance > 0.12:
-            score -= 8
-            notes.append("extended_above_60d")
-        elif distance < -0.10:
-            score -= 10
-            notes.append("below_60d_too_far")
-
-    if quality_score is not None and quality_score < 45:
-        score -= 12
+    if quality_score < e.weak_quality_threshold:
+        score -= e.weak_quality_penalty
         notes.append("weak_quality")
 
-    if valuation_score < 40:
-        score -= 10
+    if valuation_score < e.rich_valuation_threshold:
+        score -= e.rich_valuation_penalty
         notes.append("rich_valuation")
 
-    if is_earnings_soon(fundamentals.earnings_timestamp, days=14):
-        score -= 6
+    if is_earnings_soon(fundamentals.earnings_timestamp, days=e.earnings_soon_days):
+        score -= e.earnings_soon_penalty
         notes.append("earnings_soon")
 
-    score = clamp(score)
-    if score >= 78:
+    return finalize_signal(score, notes, config=config)
+
+
+def score_etf_entry(
+    *,
+    valuation_score: int,
+    trend_score: int,
+    price: PriceSnapshot,
+    config: ScoringConfig,
+) -> tuple[int, str, str]:
+    """综合生成 ETF 入场分、信号等级和说明标签。
+
+    作用：
+    - 让 ETF 不再沿用个股的质量和财报逻辑
+    - 更强调估值和趋势两层
+    """
+    e = config.etf_entry
+    score = round((valuation_score * e.valuation_weight) + (trend_score * e.trend_weight))
+    notes: list[str] = []
+    score += score_position_adjustment(price, notes, config=config.position)
+
+    if valuation_score < e.rich_valuation_threshold:
+        score -= e.rich_valuation_penalty
+        notes.append("rich_valuation")
+
+    return finalize_signal(score, notes, config=config)
+
+
+def score_position_adjustment(price: PriceSnapshot, notes: list[str], *, config: PositionConfig) -> int:
+    """根据价格相对 60 日线的位置给入场分做修正。
+
+    作用：
+    - 提取个股和 ETF 共用的位置判断逻辑
+    - 统一"接近均线、离均线过远"的加减分规则
+    """
+    p = config
+    adjustment = 0
+    distance = _pct_diff(price.current_price, price.sma60)
+    if distance is None:
+        return adjustment
+    if abs(distance) <= p.near_ma_threshold:
+        adjustment += p.near_ma_bonus
+        notes.append("near_60d_ma")
+    elif distance > p.extended_above_threshold:
+        adjustment -= p.extended_above_penalty
+        notes.append("extended_above_60d")
+    elif distance < -p.below_ma_threshold:
+        adjustment -= p.below_ma_penalty
+        notes.append("below_60d_too_far")
+    return adjustment
+
+
+def finalize_signal(score: int, notes: list[str], *, config: ScoringConfig) -> tuple[int, str, str]:
+    """把原始入场分归一化并映射成信号等级。
+
+    作用：
+    - 统一个股和 ETF 的信号阈值
+    - 生成最终的 A/B/C/D 信号和说明标签
+    """
+    score = clamp(score, lower=config.clamp_lower, upper=config.clamp_upper)
+    if score >= config.a_threshold:
         signal = "A"
-    elif score >= 64:
+    elif score >= config.b_threshold:
         signal = "B"
-    elif score >= 50:
+    elif score >= config.c_threshold:
         signal = "C"
     else:
         signal = "D"
@@ -199,7 +289,7 @@ def score_entry(
 
 
 def band_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """按分段阈值给“越高越好”的指标打分。
+    """按分段阈值给"越高越好"的指标打分。
 
     作用：
     - 适合营收增长、利润增长这类指标
@@ -245,7 +335,7 @@ def roe_score(value: float | None, *, good: float, ok: float, bad: float, weight
 
 
 def inverse_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """按分段阈值给“越低越好”的指标打分。
+    """按分段阈值给"越低越好"的指标打分。
 
     作用：
     - 适合 PE、PS、EV/EBITDA、负债等指标

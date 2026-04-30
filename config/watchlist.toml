@@ -4,7 +4,7 @@ benchmark = "SPY"
 [groups]
 etfs = ["QQQM", "VOO", "SPY", "SMH", "SOXX", "ITA", "SCHD", "VYM", "EWY"]
 core_growth = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "AVGO", "AMD", "TSM", "MU","SNDK"]
-defense_space = ["LMT", "NOC", "RTX", "PLTR"]
+defense_space = ["LMT", "NOC", "RTX", "PLTR", "ASTS", "RKLB", "PL", "LUNR", "FLY", "RDW", "SIDU"]
 dividend = ["KO", "PG", "PEP", "JNJ", "XOM", "CVX"]
 
 [tickers]

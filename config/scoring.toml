@@ -1,0 +1,159 @@
+# StockScope 评分阈值配置
+# 修改此文件即可调整评分策略，无需改源码
+
+[signals]
+a_threshold = 78
+b_threshold = 64
+c_threshold = 50
+
+[clamp]
+lower = 0
+upper = 100
+
+# ---------- 质量分（个股） ----------
+[quality]
+base = 50
+
+[quality.revenue_growth]
+good = 0.08
+ok = 0.03
+bad = -0.05
+weight = 12
+
+[quality.earnings_growth]
+good = 0.10
+ok = 0.03
+bad = -0.08
+weight = 12
+
+[quality.gross_margins]
+good = 0.45
+ok = 0.30
+bad = 0.15
+weight = 8
+
+[quality.profit_margins]
+good = 0.18
+ok = 0.10
+bad = 0.03
+weight = 10
+
+[quality.return_on_equity]
+good = 0.15
+ok = 0.10
+bad = 0.05
+weight = 10
+
+[quality.debt_to_equity]
+good = 60.0
+ok = 120.0
+bad = 220.0
+weight = 10
+
+[quality.cashflow]
+weight = 8
+
+# ---------- 估值分（个股） ----------
+[stock_valuation]
+base = 50
+
+[stock_valuation.trailing_pe]
+good = 18.0
+ok = 28.0
+bad = 45.0
+weight = 12
+
+[stock_valuation.forward_pe]
+good = 17.0
+ok = 24.0
+bad = 35.0
+weight = 12
+
+[stock_valuation.price_to_sales]
+good = 3.0
+ok = 6.0
+bad = 12.0
+weight = 8
+
+[stock_valuation.enterprise_to_ebitda]
+good = 12.0
+ok = 18.0
+bad = 30.0
+weight = 8
+
+# ---------- 估值分（ETF） ----------
+[etf_valuation]
+base = 50
+
+[etf_valuation.trailing_pe]
+good = 18.0
+ok = 24.0
+bad = 32.0
+weight = 12
+
+[etf_valuation.forward_pe]
+good = 17.0
+ok = 22.0
+bad = 28.0
+weight = 12
+
+[etf_valuation.dividend_yield]
+good = 0.03
+ok = 0.015
+weight = 6
+
+# ---------- 趋势分 ----------
+[trend]
+base = 50
+sma20_bonus = 10
+sma60_bonus = 12
+sma120_bonus = 8
+
+[trend.drawdown]
+mild_lower = -0.18
+mild_upper = -0.03
+mild_bonus = 8
+severe_threshold = -0.35
+severe_penalty = 10
+
+[trend.relative_strength]
+strong_threshold = 0.05
+strong_bonus = 10
+weak_threshold = -0.05
+weak_penalty = 8
+
+# ---------- 入场分（个股） ----------
+[stock_entry]
+valuation_weight = 0.35
+trend_weight = 0.35
+quality_weight = 0.30
+
+[stock_entry.weak_quality]
+threshold = 45
+penalty = 12
+
+[stock_entry.rich_valuation]
+threshold = 40
+penalty = 10
+
+[stock_entry.earnings_soon]
+days = 14
+penalty = 6
+
+# ---------- 入场分（ETF） ----------
+[etf_entry]
+valuation_weight = 0.45
+trend_weight = 0.55
+
+[etf_entry.rich_valuation]
+threshold = 40
+penalty = 8
+
+# ---------- 60 日线位置修正 ----------
+[position]
+near_ma_threshold = 0.03
+near_ma_bonus = 8
+extended_above_threshold = 0.12
+extended_above_penalty = 8
+below_ma_threshold = 0.10
+below_ma_penalty = 10

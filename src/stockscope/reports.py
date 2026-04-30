@@ -18,26 +18,57 @@ def write_csv(items: list[ScoredTicker], output_path: str | Path) -> None:
     """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [f.name for f in ScoredTicker.__dataclass_fields__.values()]
     rows = [asdict(item) for item in items]
-    if not rows:
-        return
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def write_dashboard(items: list[ScoredTicker], output_path: str | Path) -> None:
+def write_dashboard(
+    items: list[ScoredTicker],
+    output_path: str | Path,
+    config_path: str | Path | None = None,
+) -> None:
     """生成静态 HTML 看板。
 
     作用：
     - 把结果整理成更直观的网页表格
-    - 便于快速浏览信号、分数和说明
+    - 支持按分组筛选查看
     """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    rows = "\n".join(_render_row(item) for item in items)
+
+    # 生成分组标签和数据
+    from stockscope.config import load_groups
+
+    group_tabs = [{"id": "all", "name": f"全部({len(items)})"}]
+    group_data = {"all": items}
+
+    if config_path:
+        groups = load_groups(config_path)
+        for group_name, symbols in groups.items():
+            group_items = [item for item in items if item.symbol in symbols]
+            display_name = group_name.replace("_", " ").title()
+            group_tabs.append({
+                "id": group_name,
+                "name": f"{display_name}({len(group_items)})",
+            })
+            group_data[group_name] = group_items
+
+    # 生成各分组表格
+    group_panels = []
+    for tab in group_tabs:
+        group_id = tab["id"]
+        group_items = group_data.get(group_id, [])
+        rows = "\n".join(_render_row(item) for item in group_items)
+        panel_html = _render_group_panel(group_id, rows, group_items)
+        group_panels.append(panel_html)
+
+    group_tabs_html = _render_group_tabs(group_tabs)
+    group_panels_html = "\n".join(group_panels)
     explanation = _render_explanation()
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -76,6 +107,20 @@ def write_dashboard(items: list[ScoredTicker], output_path: str | Path) -> None:
     .tab-button.active {{ background: var(--accent); color: #fffaf0; border-color: var(--accent); }}
     .tab-panel {{ display: none; }}
     .tab-panel.active {{ display: block; }}
+    .group-tabs {{ display: flex; gap: 10px; margin: 10px 0 16px; flex-wrap: wrap; }}
+    .group-tab {{
+      border: 1px solid var(--line);
+      background: rgba(255,250,240,0.92);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 13px;
+    }}
+    .group-tab.active {{ background: var(--accent); color: #fffaf0; border-color: var(--accent); }}
+    .group-panel {{ display: none; }}
+    .group-panel.active {{ display: block; }}
+    .group-header {{ margin-bottom: 10px; font-size: 13px; color: var(--muted); }}
     .stack {{ display: grid; gap: 18px; }}
     table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
     th, td {{ padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }}
@@ -93,40 +138,19 @@ def write_dashboard(items: list[ScoredTicker], output_path: str | Path) -> None:
     <h1>StockScope</h1>
     <p>生成时间：{escape(generated_at)}。当前信号仅用于研究分析，不构成自动交易建议。</p>
     <div class="tabs">
-      <button class="tab-button active" data-tab="signals">买点信号表</button>
+      <button class="tab-button active" data-tab="signals">信号分组</button>
       <button class="tab-button" data-tab="guide">评分说明</button>
     </div>
     <section id="signals" class="tab-panel active">
-      <div class="panel">
-        <h2>买点信号表</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>代码</th>
-              <th>名称</th>
-              <th>类型</th>
-              <th>信号</th>
-              <th>入场分</th>
-              <th>估值分</th>
-              <th>趋势分</th>
-              <th>质量分</th>
-              <th>现价</th>
-              <th>距60日线</th>
-              <th>距52周高点回撤</th>
-              <th>说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows}
-          </tbody>
-        </table>
-      </div>
+      {group_tabs_html}
+      {group_panels_html}
     </section>
     <section id="guide" class="tab-panel">
       {explanation}
     </section>
   </div>
   <script>
+    // 顶部标签切换
     const buttons = document.querySelectorAll('.tab-button');
     const panels = document.querySelectorAll('.tab-panel');
     buttons.forEach((button) => {{
@@ -134,6 +158,17 @@ def write_dashboard(items: list[ScoredTicker], output_path: str | Path) -> None:
         const target = button.getAttribute('data-tab');
         buttons.forEach((item) => item.classList.toggle('active', item === button));
         panels.forEach((panel) => panel.classList.toggle('active', panel.id === target));
+      }});
+    }});
+
+    // 分组标签切换
+    const groupButtons = document.querySelectorAll('.group-tab');
+    const groupPanels = document.querySelectorAll('.group-panel');
+    groupButtons.forEach((button) => {{
+      button.addEventListener('click', () => {{
+        const target = button.getAttribute('data-group');
+        groupButtons.forEach((item) => item.classList.toggle('active', item === button));
+        groupPanels.forEach((panel) => panel.classList.toggle('active', panel.getAttribute('data-group') === target));
       }});
     }});
   </script>
@@ -270,6 +305,66 @@ def _render_explanation() -> str:
   </div>
 </div>
 """
+
+
+def _render_group_tabs(tabs: list[dict]) -> str:
+    """渲染分组标签按钮。
+
+    作用：
+    - 为每个分组生成一个可点击的标签按钮
+    """
+    buttons = []
+    for i, tab in enumerate(tabs):
+        active_class = "active" if i == 0 else ""
+        buttons.append(
+            f'<button class="group-tab {active_class}" data-group="{tab["id"]}">{escape(tab["name"])}</button>'
+        )
+    return f'<div class="group-tabs">' + "".join(buttons) + '</div>'
+
+
+def _render_group_panel(group_id: str, rows_html: str, items: list[ScoredTicker]) -> str:
+    """渲染单个分组的表格面板。
+
+    作用：
+    - 每个分组对应一个可切换显示的面板
+    """
+    active_class = "active" if group_id == "all" else ""
+    signal_counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+    for item in items:
+        if item.signal in signal_counts:
+            signal_counts[item.signal] += 1
+
+    summary = f"A({signal_counts['A']}) B({signal_counts['B']}) C({signal_counts['C']}) D({signal_counts['D']})"
+
+    if not items:
+        rows_html = '<tr><td colspan="12" class="muted" style="text-align:center;">该分组暂无数据</td></tr>'
+
+    return f"""<div class="group-panel {active_class}" data-group="{group_id}">
+      <div class="panel">
+        <div class="group-header">
+          <span class="signal-summary">{summary}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th>类型</th>
+              <th>信号</th>
+              <th>入场分</th>
+              <th>估值分</th>
+              <th>趋势分</th>
+              <th>质量分</th>
+              <th>现价</th>
+              <th>距60日线</th>
+              <th>距52周高点回撤</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </div>"""
 
 
 def _translate_note(note: str) -> str:
