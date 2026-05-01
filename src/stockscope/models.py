@@ -15,6 +15,7 @@ class PriceSnapshot:
     low_52w: float | None = None
     return_6m: float | None = None
     return_1y: float | None = None
+    last_date: str | None = None  # 最后交易日 "2026-05-01"
 
 
 @dataclass
@@ -70,6 +71,7 @@ class ScoredTicker:
     return_on_equity: float | None
     group: str | None = None
     breakdown: ScoreBreakdown | None = None
+    data_date: str | None = None
 
 
 # ---------------------------------------------------------------------------

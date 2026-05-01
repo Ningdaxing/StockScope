@@ -143,6 +143,7 @@ def score_ticker(
         debt_to_equity=fundamentals.debt_to_equity,
         return_on_equity=fundamentals.return_on_equity,
         breakdown=breakdown,
+        data_date=price.last_date,
     )
 
 
@@ -260,6 +261,7 @@ def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, 
     score = t.base
 
     # 均线位置
+    trade_date = f"({price.last_date})" if price.last_date else ""
     sma_checks = [
         ("20日线", price.current_price, price.sma20, t.sma20_bonus),
         ("60日线", price.current_price, price.sma60, t.sma60_bonus),
@@ -269,7 +271,7 @@ def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, 
         if cp and ma and cp >= ma:
             score += bonus
             if collector:
-                collector.add(factor=f"站上{label}", value=f"现价{_fmt_v(cp)} ≥ MA{_fmt_v(ma)}", score=bonus, detail=f"现价 ≥ {label} → +{bonus}", category="trend")
+                collector.add(factor=f"站上{label}", value=f"现价{trade_date} {_fmt_v(cp)} ≥ MA{_fmt_v(ma)}", score=bonus, detail=f"现价{trade_date} ≥ {label} → +{bonus}", category="trend")
 
     # 回撤
     drawdown = _drawdown_from_high(price.current_price, price.high_52w)
@@ -277,13 +279,13 @@ def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, 
         if t.drawdown_mild_lower <= drawdown <= t.drawdown_mild_upper:
             score += t.drawdown_mild_bonus
             if collector:
-                collector.add(factor="温和回撤", value=_fmt_v(drawdown, is_pct=True), score=t.drawdown_mild_bonus,
-                              detail=f"{_fmt_v(t.drawdown_mild_lower, is_pct=True)} ≤ 回撤 ≤ {_fmt_v(t.drawdown_mild_upper, is_pct=True)} → +{t.drawdown_mild_bonus}", category="trend")
+                collector.add(factor="温和回撤", value=f"{_fmt_v(drawdown, is_pct=True)}{trade_date}", score=t.drawdown_mild_bonus,
+                              detail=f"{_fmt_v(t.drawdown_mild_lower, is_pct=True)} ≤ 回撤{trade_date} ≤ {_fmt_v(t.drawdown_mild_upper, is_pct=True)} → +{t.drawdown_mild_bonus}", category="trend")
         elif drawdown < t.drawdown_severe_threshold:
             score -= t.drawdown_severe_penalty
             if collector:
-                collector.add(factor="严重回撤", value=_fmt_v(drawdown, is_pct=True), score=-t.drawdown_severe_penalty,
-                              detail=f"回撤 < {_fmt_v(t.drawdown_severe_threshold, is_pct=True)} → { -t.drawdown_severe_penalty}", category="trend")
+                collector.add(factor="严重回撤", value=f"{_fmt_v(drawdown, is_pct=True)}{trade_date}", score=-t.drawdown_severe_penalty,
+                              detail=f"回撤{trade_date} < {_fmt_v(t.drawdown_severe_threshold, is_pct=True)} → { -t.drawdown_severe_penalty}", category="trend")
 
     # 相对强度
     rel_strength = relative_strength(price.return_6m, benchmark_price.return_6m if benchmark_price else None)
@@ -291,13 +293,13 @@ def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, 
         if rel_strength > t.rs_strong_threshold:
             score += t.rs_strong_bonus
             if collector:
-                collector.add(factor="相对强势", value=_fmt_v(rel_strength, is_pct=True), score=t.rs_strong_bonus,
-                              detail=f"相对强度 > {_fmt_v(t.rs_strong_threshold, is_pct=True)} → +{t.rs_strong_bonus}", category="trend")
+                collector.add(factor="相对强势", value=f"{_fmt_v(rel_strength, is_pct=True)}{trade_date}", score=t.rs_strong_bonus,
+                              detail=f"相对强度(6m){trade_date} > {_fmt_v(t.rs_strong_threshold, is_pct=True)} → +{t.rs_strong_bonus}", category="trend")
         elif rel_strength < t.rs_weak_threshold:
             score -= t.rs_weak_penalty
             if collector:
-                collector.add(factor="相对弱势", value=_fmt_v(rel_strength, is_pct=True), score=-t.rs_weak_penalty,
-                              detail=f"相对强度 < {_fmt_v(t.rs_weak_threshold, is_pct=True)} → { -t.rs_weak_penalty}", category="trend")
+                collector.add(factor="相对弱势", value=f"{_fmt_v(rel_strength, is_pct=True)}{trade_date}", score=-t.rs_weak_penalty,
+                              detail=f"相对强度(6m){trade_date} < {_fmt_v(t.rs_weak_threshold, is_pct=True)} → { -t.rs_weak_penalty}", category="trend")
 
     return clamp(score)
 

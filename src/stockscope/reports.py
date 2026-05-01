@@ -40,6 +40,7 @@ def write_dashboard(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data_date = next((item.data_date for item in items if item.data_date), "")
 
     # 生成分组标签和数据
     from stockscope.config import load_groups
@@ -171,7 +172,7 @@ def write_dashboard(
 <body>
   <div class="wrap">
     <h1>StockScope</h1>
-    <p>生成时间：{escape(generated_at)}。当前信号仅用于研究分析，不构成自动交易建议。</p>
+    <p>生成时间：{escape(generated_at)}。数据日期：{escape(data_date) or 'N/A'}。当前信号仅用于研究分析，不构成自动交易建议。</p>
     <div class="tabs">
       <button class="tab-button active" data-tab="signals">信号分组</button>
       <button class="tab-button" data-tab="guide">评分说明</button>

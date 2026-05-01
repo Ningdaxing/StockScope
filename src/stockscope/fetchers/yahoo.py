@@ -77,7 +77,13 @@ class YahooClient:
         ticker = yf.Ticker(symbol)
         history = ticker.history(period=range_, interval=interval, auto_adjust=False)
         closes = [float(item) for item in history["Close"].dropna().tolist()] if not history.empty else []
-        snapshot = PriceSnapshot(symbol=symbol, closes=closes)
+        last_date = ""
+        if not history.empty and hasattr(history.index, "strftime"):
+            try:
+                last_date = history.index[-1].strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        snapshot = PriceSnapshot(symbol=symbol, closes=closes, last_date=last_date or None)
         if not closes:
             return snapshot
 
