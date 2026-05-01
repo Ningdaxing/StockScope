@@ -160,6 +160,12 @@ def write_dashboard(
     .positive {{ color: var(--good); font-weight: bold; }}
     .negative {{ color: var(--bad); font-weight: bold; }}
     .neutral {{ color: var(--muted); }}
+    .metric-excellent {{ color: var(--good); font-weight: bold; }}
+    .metric-ideal {{ color: var(--good); font-weight: bold; }}
+    .metric-weak {{ color: var(--bad); font-weight: bold; }}
+    .metric-warn {{ color: var(--warn); font-weight: bold; }}
+    .note-good {{ color: var(--good); font-weight: bold; }}
+    .note-warn {{ color: var(--warn); font-weight: bold; }}
   </style>
 </head>
 <body>
@@ -243,6 +249,53 @@ def print_terminal_summary(items: list[ScoredTicker], *, limit: int = 12) -> str
     return "\n".join(lines)
 
 
+def _score_class(score: int | None, *, excellent: int = 78, weak: int = 45) -> str:
+    """分数高亮：高分绿色加粗，低分红色警告。"""
+    if score is None:
+        return ""
+    if score >= excellent:
+        return "metric-excellent"
+    if score < weak:
+        return "metric-weak"
+    return ""
+
+
+def _valuation_class(score: int | None) -> str:
+    """估值分专用：>=75 便宜，<40 偏贵。"""
+    return _score_class(score, excellent=75, weak=40)
+
+
+def _note_class(note: str) -> str:
+    """说明标签高亮：好信号绿色，警告橙色。"""
+    if "near_60d_ma" in note:
+        return "note-good"
+    if any(tag in note for tag in ("weak_quality", "rich_valuation", "earnings_soon", "extended_above", "below_60d")):
+        return "note-warn"
+    return ""
+
+
+def _dist_class(dist: float | None) -> str:
+    """距60日线高亮：贴近绿色，过远橙色。"""
+    if dist is None:
+        return ""
+    if abs(dist) <= 0.03:
+        return "metric-ideal"
+    if dist > 0.12 or dist < -0.10:
+        return "metric-warn"
+    return ""
+
+
+def _dd_class(dd: float | None) -> str:
+    """回撤高亮：温和回撤绿色，严重回撤红色。"""
+    if dd is None:
+        return ""
+    if -0.18 <= dd <= -0.03:
+        return "metric-ideal"
+    if dd < -0.35:
+        return "metric-weak"
+    return ""
+
+
 def _render_row(item: ScoredTicker, row_index: int) -> str:
     """渲染单条评分结果 + 展开按钮 + 隐藏拆解子行。"""
     quality = "-" if item.quality_score is None else str(item.quality_score)
@@ -252,6 +305,7 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
     has_breakdown = item.breakdown is not None
     toggle_html = ""
     breakdown_html = ""
+    note_display = _translate_note(item.note)
     if has_breakdown:
         toggle_html = f"<button class='toggle-btn' onclick='toggleBreakdown({row_index})' title='评分拆解'>▸</button>"
         breakdown_html = _render_breakdown_row(item, row_index)
@@ -261,14 +315,14 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
         f"<td>{escape(item.short_name)}</td>"
         f"<td>{escape(item.asset_type)}</td>"
         f"<td class='signal-{escape(item.signal)}'>{escape(item.signal)}</td>"
-        f"<td>{item.entry_score}</td>"
-        f"<td>{item.valuation_score}</td>"
-        f"<td>{item.trend_score}</td>"
-        f"<td>{quality}</td>"
+        f"<td class='{_score_class(item.entry_score)}'>{item.entry_score}</td>"
+        f"<td class='{_valuation_class(item.valuation_score)}'>{item.valuation_score}</td>"
+        f"<td class='{_score_class(item.trend_score, excellent=75, weak=45)}'>{item.trend_score}</td>"
+        f"<td class='{_score_class(item.quality_score, excellent=75, weak=45)}'>{quality}</td>"
         f"<td>{price}</td>"
-        f"<td>{dist}</td>"
-        f"<td>{drawdown}</td>"
-        f"<td>{escape(_translate_note(item.note))} {toggle_html}</td>"
+        f"<td class='{_dist_class(item.distance_to_sma60_pct)}'>{dist}</td>"
+        f"<td class='{_dd_class(item.drawdown_from_high_pct)}'>{drawdown}</td>"
+        f"<td class='{_note_class(item.note)}'>{escape(note_display)} {toggle_html}</td>"
         "</tr>"
     )
     return main_row + breakdown_html
