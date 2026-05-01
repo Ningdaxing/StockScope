@@ -1,2 +1,0 @@
-[console_scripts]
-stockscope = stockscope.cli:main

@@ -4,3 +4,6 @@ __pycache__/
 **/__pycache__/
 outputs/
 *.pyc
+*.egg-info/
+.claude/
+.DS_Store
