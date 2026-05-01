@@ -1,0 +1,8 @@
+# StockScope dev dependencies — generated 2026-05-01
+# pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest==9.0.3
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
