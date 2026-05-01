@@ -60,10 +60,15 @@ def write_dashboard(
 
     # 生成各分组表格
     group_panels = []
+    row_counter = 0
     for tab in group_tabs:
         group_id = tab["id"]
         group_items = group_data.get(group_id, [])
-        rows = "\n".join(_render_row(item) for item in group_items)
+        rows_parts = []
+        for item in group_items:
+            rows_parts.append(_render_row(item, row_counter))
+            row_counter += 1
+        rows = "\n".join(rows_parts)
         panel_html = _render_group_panel(group_id, rows, group_items)
         group_panels.append(panel_html)
 
@@ -131,6 +136,30 @@ def write_dashboard(
     .signal-D {{ color: var(--bad); font-weight: bold; }}
     .mono {{ font-family: "SFMono-Regular", Menlo, monospace; }}
     .muted {{ color: var(--muted); }}
+    .toggle-btn {{
+      cursor: pointer; background: none; border: 1px solid var(--line);
+      color: var(--ink); font-size: 0.8rem; padding: 0 4px; border-radius: 3px;
+      transition: transform 0.2s;
+    }}
+    .toggle-btn.open {{ transform: rotate(90deg); }}
+    .breakdown-panel {{
+      background: var(--panel); border: 1px solid var(--line);
+      padding: 12px 16px; margin: 4px 0; border-radius: 6px;
+      font-size: 0.85rem;
+    }}
+    .breakdown-panel h4 {{
+      margin: 8px 0 4px; color: var(--accent); font-size: 0.85rem;
+    }}
+    .bd-section {{ margin-bottom: 8px; }}
+    .bd-formula {{
+      display: block; background: #f0ede4; padding: 6px 10px;
+      border-radius: 4px; white-space: pre-wrap; font-size: 0.8rem;
+    }}
+    .breakdown-table {{ width: 100%; font-size: 0.8rem; }}
+    .breakdown-table td {{ padding: 2px 8px; border-bottom: 1px solid #f0ede4; }}
+    .positive {{ color: var(--good); font-weight: bold; }}
+    .negative {{ color: var(--bad); font-weight: bold; }}
+    .neutral {{ color: var(--muted); }}
   </style>
 </head>
 <body>
@@ -171,6 +200,20 @@ def write_dashboard(
         groupPanels.forEach((panel) => panel.classList.toggle('active', panel.getAttribute('data-group') === target));
       }});
     }});
+    // 评分拆解展开/折叠
+    function toggleBreakdown(index) {{
+      const row = document.getElementById('bd-' + index);
+      const btn = event.target;
+      if (row.style.display === 'none') {{
+        row.style.display = '';
+        btn.classList.add('open');
+        btn.textContent = '▾';
+      }} else {{
+        row.style.display = 'none';
+        btn.classList.remove('open');
+        btn.textContent = '▸';
+      }}
+    }}
   </script>
 </body>
 </html>
@@ -200,18 +243,19 @@ def print_terminal_summary(items: list[ScoredTicker], *, limit: int = 12) -> str
     return "\n".join(lines)
 
 
-def _render_row(item: ScoredTicker) -> str:
-    """把单条结果渲染成 HTML 表格行。
-
-    作用：
-    - 作为 HTML 看板的底层拼装函数
-    - 统一单行数据在网页中的展示格式
-    """
+def _render_row(item: ScoredTicker, row_index: int) -> str:
+    """渲染单条评分结果 + 展开按钮 + 隐藏拆解子行。"""
     quality = "-" if item.quality_score is None else str(item.quality_score)
     price = _fmt_number(item.current_price)
     dist = _fmt_pct(item.distance_to_sma60_pct)
     drawdown = _fmt_pct(item.drawdown_from_high_pct)
-    return (
+    has_breakdown = item.breakdown is not None
+    toggle_html = ""
+    breakdown_html = ""
+    if has_breakdown:
+        toggle_html = f"<button class='toggle-btn' onclick='toggleBreakdown({row_index})' title='评分拆解'>▸</button>"
+        breakdown_html = _render_breakdown_row(item, row_index)
+    main_row = (
         "<tr>"
         f"<td class='mono'>{escape(item.symbol)}</td>"
         f"<td>{escape(item.short_name)}</td>"
@@ -224,8 +268,79 @@ def _render_row(item: ScoredTicker) -> str:
         f"<td>{price}</td>"
         f"<td>{dist}</td>"
         f"<td>{drawdown}</td>"
-        f"<td>{escape(_translate_note(item.note))}</td>"
+        f"<td>{escape(_translate_note(item.note))} {toggle_html}</td>"
         "</tr>"
+    )
+    return main_row + breakdown_html
+
+
+def _render_breakdown_row(item: ScoredTicker, row_index: int) -> str:
+    """渲染评分拆解的可展开子行。"""
+    bd = item.breakdown
+    if bd is None:
+        return ""
+    sections: list[str] = []
+
+    # 入场公式
+    if bd.entry_formula:
+        sections.append(
+            "<div class='bd-section'>"
+            f"<h4>入场分计算</h4>"
+            f"<code class='bd-formula'>{escape(bd.entry_formula)}</code>"
+            "</div>"
+        )
+
+    # 质量分拆解
+    if bd.quality_items and item.quality_score is not None:
+        sections.append(_render_breakdown_section(
+            f"质量分({item.quality_score}) = {bd.quality_base} 基准",
+            bd.quality_items,
+        ))
+
+    # 估值分拆解
+    if bd.valuation_items:
+        sections.append(_render_breakdown_section(
+            f"估值分({item.valuation_score}) = {bd.valuation_base} 基准",
+            bd.valuation_items,
+        ))
+
+    # 趋势分拆解
+    if bd.trend_items:
+        sections.append(_render_breakdown_section(
+            f"趋势分({item.trend_score}) = {bd.trend_base} 基准",
+            bd.trend_items,
+        ))
+
+    # 入场修正
+    if bd.adjustments:
+        sections.append(_render_breakdown_section("入场修正", bd.adjustments))
+
+    inner = "\n".join(sections)
+    return (
+        f'<tr class="breakdown-row" id="bd-{row_index}" style="display:none">'
+        f'<td colspan="13"><div class="breakdown-panel">{inner}</div></td>'
+        f"</tr>"
+    )
+
+
+def _render_breakdown_section(title: str, items: list) -> str:
+    """渲染单个拆解区块（标题 + 明细小表）。"""
+    rows = []
+    for it in items:
+        css_class = "positive" if it.score > 0 else ("negative" if it.score < 0 else "neutral")
+        rows.append(
+            "<tr>"
+            f"<td>{escape(it.factor)}</td>"
+            f"<td class='mono'>{escape(it.value)}</td>"
+            f"<td class='{css_class}'>{( '+' if it.score > 0 else '' )}{it.score}</td>"
+            f"<td class='muted'>{escape(it.detail)}</td>"
+            "</tr>"
+        )
+    return (
+        f'<div class="bd-section"><h4>{escape(title)}</h4>'
+        '<table class="breakdown-table"><tbody>'
+        f'{"".join(rows)}'
+        '</tbody></table></div>'
     )
 
 

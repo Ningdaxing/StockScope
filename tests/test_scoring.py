@@ -381,7 +381,7 @@ class EntryPenaltyTests(unittest.TestCase):
     def test_weak_quality_penalty(self) -> None:
         p = _make_price()
         f = _make_fundamentals()
-        score, _, note = score_stock_entry(
+        score, _, note, _ = score_stock_entry(
             quality_score=30, valuation_score=60, trend_score=60,
             price=p, fundamentals=f, config=self.config,
         )
@@ -391,7 +391,7 @@ class EntryPenaltyTests(unittest.TestCase):
     def test_rich_valuation_penalty_stock(self) -> None:
         p = _make_price()
         f = _make_fundamentals()
-        score, _, note = score_stock_entry(
+        score, _, note, _ = score_stock_entry(
             quality_score=70, valuation_score=30, trend_score=60,
             price=p, fundamentals=f, config=self.config,
         )
@@ -399,7 +399,7 @@ class EntryPenaltyTests(unittest.TestCase):
 
     def test_rich_valuation_penalty_etf(self) -> None:
         p = _make_price()
-        score, _, note = score_etf_entry(
+        score, _, note, _ = score_etf_entry(
             valuation_score=30, trend_score=60, price=p, config=self.config,
         )
         self.assertIn("rich_valuation", note)
@@ -411,7 +411,7 @@ class EntryPenaltyTests(unittest.TestCase):
         p = _make_price()
         future_ts = int((datetime.now(timezone.utc).timestamp() + 86400 * 7))
         f = _make_fundamentals(earnings_timestamp=future_ts)
-        score, _, note = score_stock_entry(
+        score, _, note, _ = score_stock_entry(
             quality_score=70, valuation_score=60, trend_score=60,
             price=p, fundamentals=f, config=self.config,
         )
@@ -514,6 +514,65 @@ class CustomConfigTests(unittest.TestCase):
         # 原默认下是 A(>=78)，新阈值下可能降级
         self.assertIn(scored.signal, {"A", "B", "C"})
         self.assertGreaterEqual(scored.entry_score, 50)
+
+
+# ---------------------------------------------------------------------------
+# 评分拆解
+# ---------------------------------------------------------------------------
+class BreakdownTests(unittest.TestCase):
+    def test_stock_breakdown_has_all_categories(self) -> None:
+        f = _make_fundamentals()
+        p = _make_price()
+        scored = score_ticker(f, p)
+        bd = scored.breakdown
+        self.assertIsNotNone(bd)
+        self.assertGreater(len(bd.quality_items), 0)
+        self.assertGreater(len(bd.valuation_items), 0)
+        self.assertGreater(len(bd.trend_items), 0)
+        self.assertIn("入场分", bd.entry_formula)
+
+    def test_etf_breakdown_no_quality(self) -> None:
+        f = _make_fundamentals(quote_type="ETF", trailing_pe=20, forward_pe=18, dividend_yield=0.02)
+        p = _make_price()
+        scored = score_ticker(f, p)
+        bd = scored.breakdown
+        self.assertIsNotNone(bd)
+        self.assertEqual(len(bd.quality_items), 0)
+        self.assertGreater(len(bd.valuation_items), 0)
+
+    def test_breakdown_adjustment_near_ma(self) -> None:
+        f = _make_fundamentals()
+        p = _make_price(current_price=110, sma60=110)
+        scored = score_ticker(f, p)
+        bd = scored.breakdown
+        self.assertIsNotNone(bd)
+        adj_factors = {item.factor for item in bd.adjustments}
+        self.assertIn("贴近60日线", adj_factors)
+
+    def test_breakdown_weak_quality_penalty(self) -> None:
+        f = _make_fundamentals(
+            revenue_growth=-0.15, earnings_growth=-0.20,
+            gross_margins=0.10, profit_margins=-0.05,
+            return_on_equity=0.01, debt_to_equity=260,
+            free_cashflow=-100, operating_cashflow=-50,
+        )
+        p = _make_price()
+        scored = score_ticker(f, p)
+        bd = scored.breakdown
+        self.assertIsNotNone(bd)
+        adj_factors = {item.factor for item in bd.adjustments}
+        self.assertIn("质量偏弱惩罚", adj_factors)
+
+    def test_breakdown_items_have_correct_structure(self) -> None:
+        f = _make_fundamentals()
+        p = _make_price()
+        scored = score_ticker(f, p)
+        bd = scored.breakdown
+        for item in bd.quality_items:
+            self.assertIsInstance(item.factor, str)
+            self.assertIsInstance(item.score, int)
+            self.assertIsInstance(item.detail, str)
+            self.assertEqual(item.category, "quality")
 
 
 if __name__ == "__main__":

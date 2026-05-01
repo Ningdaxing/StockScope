@@ -69,6 +69,7 @@ class ScoredTicker:
     debt_to_equity: float | None
     return_on_equity: float | None
     group: str | None = None
+    breakdown: ScoreBreakdown | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -258,3 +259,54 @@ class ScoringConfig:
                 below_ma_penalty=10,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# 评分拆解
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BreakdownItem:
+    """评分因子明细条目。"""
+    factor: str       # 因子名（中文），如 "营收增长"
+    value: str        # 实际值展示，如 "12%"
+    score: int        # 贡献分（正加分、负扣分）
+    detail: str       # 规则说明，如 "12% ≥ 8% → +12"
+    category: str     # quality / valuation / trend / adjustment
+
+
+@dataclass
+class ScoreBreakdown:
+    """一次完整评分的拆解明细。"""
+    quality_base: int = 50
+    quality_items: list[BreakdownItem] = field(default_factory=list)
+    valuation_base: int = 50
+    valuation_items: list[BreakdownItem] = field(default_factory=list)
+    trend_base: int = 50
+    trend_items: list[BreakdownItem] = field(default_factory=list)
+    entry_formula: str = ""
+    adjustments: list[BreakdownItem] = field(default_factory=list)
+
+
+class BreakdownCollector:
+    """评分过程中收集因子明细的轻量收集器。
+
+    用法：
+        collector = BreakdownCollector()
+        collector.add(factor="营收增长", value="12%", score=12, detail="12% ≥ 8% → +12", category="quality")
+    """
+
+    def __init__(self) -> None:
+        self._items: list[BreakdownItem] = []
+
+    def add(self, *, factor: str, value: str, score: int, detail: str, category: str) -> None:
+        self._items.append(BreakdownItem(
+            factor=factor, value=value, score=score, detail=detail, category=category,
+        ))
+
+    def by_category(self, category: str) -> list[BreakdownItem]:
+        return [item for item in self._items if item.category == category]
+
+    @property
+    def items(self) -> list[BreakdownItem]:
+        return list(self._items)

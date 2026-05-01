@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(stockscope run *)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(pip freeze *)",
+      "Bash(pip show *)"
+    ]
+  }
+}
