@@ -22,7 +22,8 @@ from stockscope.scoring import score_ticker
 
 
 MAX_FETCH_WORKERS = 6
-SYMBOL_TIMEOUT_SECONDS = 15
+SYMBOL_TIMEOUT_SECONDS = 25
+MAX_RETRIES = 1
 POLL_INTERVAL_SECONDS = 0.2
 
 
@@ -108,7 +109,7 @@ def run_command(config_path: str, output_dir: str, limit: int, open_browser: boo
     for item in scored_items:
         item.group = symbol_to_group.get(item.symbol)
     write_csv(scored_items, outdir / "signals.csv")
-    write_dashboard(scored_items, outdir / "dashboard.html", config_path=config_path)
+    write_dashboard(scored_items, outdir / "dashboard.html", config_path=config_path, scoring_config=scoring_config)
     print(print_terminal_summary(scored_items, limit=limit))
     print(f"\nWrote {len(scored_items)} rows to {outdir / 'signals.csv'}")
     print(f"Wrote dashboard to {outdir / 'dashboard.html'}")
@@ -125,16 +126,22 @@ def run_command(config_path: str, output_dir: str, limit: int, open_browser: boo
 
 
 def _fetch_and_score_symbol(symbol: str, benchmark_chart, scoring_config) -> object:
-    """抓取单个 ticker 数据并完成评分。
-
-    作用：
-    - 作为并发任务的最小执行单元
-    - 把单个标的的抓数和评分封装在一起，便于超时和失败隔离
-    """
+    """抓取单个 ticker 数据并完成评分，网络失败时重试一次。"""
     client = YahooClient()
-    fundamentals = client.fetch_summary(symbol)
-    chart = client.fetch_chart(symbol)
-    return score_ticker(fundamentals, chart, benchmark_chart, config=scoring_config)
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            fundamentals = client.fetch_summary(symbol)
+            chart = client.fetch_chart(symbol)
+            return score_ticker(fundamentals, chart, benchmark_chart, config=scoring_config)
+        except Exception as exc:
+            last_error = exc
+            if attempt < MAX_RETRIES and is_network_error(exc):
+                import time as _time
+                _time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+    raise last_error  # type: ignore[misc]
 
 
 def main(argv: list[str] | None = None) -> int:

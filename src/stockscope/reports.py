@@ -18,8 +18,12 @@ def write_csv(items: list[ScoredTicker], output_path: str | Path) -> None:
     """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [f.name for f in ScoredTicker.__dataclass_fields__.values()]
-    rows = [asdict(item) for item in items]
+    fieldnames = [f.name for f in ScoredTicker.__dataclass_fields__.values() if f.name != "breakdown"]
+    rows = []
+    for item in items:
+        d = asdict(item)
+        d.pop("breakdown", None)
+        rows.append(d)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -30,6 +34,7 @@ def write_dashboard(
     items: list[ScoredTicker],
     output_path: str | Path,
     config_path: str | Path | None = None,
+    scoring_config = None,
 ) -> None:
     """生成静态 HTML 看板。
 
@@ -73,9 +78,10 @@ def write_dashboard(
         panel_html = _render_group_panel(group_id, rows, group_items)
         group_panels.append(panel_html)
 
+    overview_html = _render_overview(items)
     group_tabs_html = _render_group_tabs(group_tabs)
     group_panels_html = "\n".join(group_panels)
-    explanation = _render_explanation()
+    explanation = _render_explanation(scoring_config)
     html = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -167,6 +173,34 @@ def write_dashboard(
     .metric-warn {{ color: var(--warn); font-weight: bold; }}
     .note-good {{ color: var(--good); font-weight: bold; }}
     .note-warn {{ color: var(--warn); font-weight: bold; }}
+    .overview-stats {{ display: flex; gap: 12px; flex-wrap: wrap; }}
+    .stat-item {{
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 18px; text-align: center;
+      font-size: 28px; font-weight: bold; min-width: 70px;
+    }}
+    .stat-item span {{ display: block; font-size: 11px; color: var(--muted); font-weight: normal; margin-top: 2px; }}
+    .stat-a {{ color: var(--good); }}
+    .stat-b {{ color: var(--accent); }}
+    .stat-c {{ color: var(--warn); }}
+    .stat-d {{ color: var(--bad); }}
+    .stat-total {{ border-color: var(--accent); }}
+    .buy-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }}
+    .buy-card {{
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 14px 16px;
+      transition: box-shadow 0.2s;
+    }}
+    .buy-card:hover {{ box-shadow: 0 6px 20px rgba(23,73,77,0.10); }}
+    .buy-card-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
+    .buy-symbol {{ font-size: 1.05rem; }}
+    .buy-entry {{ margin-left: auto; font-weight: bold; font-size: 1.1rem; color: var(--accent); }}
+    .buy-card-name {{ font-size: 0.9rem; color: var(--muted); margin-bottom: 8px; }}
+    .buy-card-scores {{ display: flex; gap: 12px; font-size: 0.85rem; margin-bottom: 6px; }}
+    .buy-card-meta {{ display: flex; gap: 12px; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }}
+    .buy-card-reason {{ font-size: 0.85rem; color: var(--good); margin-bottom: 2px; }}
+    .buy-card-note {{ font-size: 0.8rem; }}
+    .buy-card-note.note-warn {{ color: var(--warn); }}
   </style>
 </head>
 <body>
@@ -174,10 +208,14 @@ def write_dashboard(
     <h1>StockScope</h1>
     <p>生成时间：{escape(generated_at)}。数据日期：{escape(data_date) or 'N/A'}。当前信号仅用于研究分析，不构成自动交易建议。</p>
     <div class="tabs">
-      <button class="tab-button active" data-tab="signals">信号分组</button>
+      <button class="tab-button active" data-tab="overview">买入总览</button>
+      <button class="tab-button" data-tab="signals">信号分组</button>
       <button class="tab-button" data-tab="guide">评分说明</button>
     </div>
-    <section id="signals" class="tab-panel active">
+    <section id="overview" class="tab-panel active">
+      {overview_html}
+    </section>
+    <section id="signals" class="tab-panel">
       {group_tabs_html}
       {group_panels_html}
     </section>
@@ -226,6 +264,119 @@ def write_dashboard(
 </html>
 """
     path.write_text(html, encoding="utf-8")
+
+
+def _render_overview(items: list[ScoredTicker]) -> str:
+    """渲染买入总览面板：选出最值得买入的标的，分强烈推荐 / 可关注两档。"""
+    # 分类筛选
+    strong_buy: list[ScoredTicker] = []  # A级 + 无追高/破位风险
+    watch: list[ScoredTicker] = []       # A级但有风险，或B级高质量的
+
+    for item in items:
+        if item.signal == "A":
+            note = item.note or ""
+            if "extended_above" in note or "below_60d" in note:
+                watch.append(item)
+            else:
+                strong_buy.append(item)
+        elif item.signal == "B":
+            val = item.valuation_score or 0
+            trend = item.trend_score or 0
+            if val >= 60 and trend >= 70:
+                watch.append(item)
+
+    strong_buy.sort(key=lambda x: x.entry_score, reverse=True)
+    watch.sort(key=lambda x: x.entry_score, reverse=True)
+
+    # 总览统计
+    a_count = sum(1 for i in items if i.signal == "A")
+    b_count = sum(1 for i in items if i.signal == "B")
+    c_count = sum(1 for i in items if i.signal == "C")
+    d_count = sum(1 for i in items if i.signal == "D")
+
+    # 渲染推荐卡片
+    def _render_buy_card(item: ScoredTicker) -> str:
+        quality = "-" if item.quality_score is None else str(item.quality_score)
+        note = _translate_note(item.note)
+        price = _fmt_number(item.current_price)
+        dist = _fmt_pct(item.distance_to_sma60_pct)
+        dd = _fmt_pct(item.drawdown_from_high_pct)
+        reason = _buy_reason(item)
+        return f"""<div class="buy-card">
+          <div class="buy-card-header">
+            <span class="mono buy-symbol">{escape(item.symbol)}</span>
+            <span class="signal-{escape(item.signal)}">{escape(item.signal)}</span>
+            <span class="buy-entry">{item.entry_score}分</span>
+          </div>
+          <div class="buy-card-name">{escape(item.short_name)}</div>
+          <div class="buy-card-scores">
+            <span>估值 <b class="{_valuation_class(item.valuation_score)}">{item.valuation_score}</b></span>
+            <span>趋势 <b class="{_score_class(item.trend_score, excellent=75, weak=45)}">{item.trend_score}</b></span>
+            <span>质量 <b class="{_score_class(item.quality_score, excellent=75, weak=45)}">{quality}</b></span>
+          </div>
+          <div class="buy-card-meta">
+            <span>现价 {price}</span>
+            <span>60日线 <span class="{_dist_class(item.distance_to_sma60_pct)}">{dist}</span></span>
+            <span>回撤 <span class="{_dd_class(item.drawdown_from_high_pct)}">{dd}</span></span>
+          </div>
+          <div class="buy-card-reason">{escape(reason)}</div>
+          <div class="buy-card-note {_note_class(item.note)}">{escape(note)}</div>
+        </div>"""
+
+    strong_cards = "\n".join(_render_buy_card(item) for item in strong_buy)
+    watch_cards = "\n".join(_render_buy_card(item) for item in watch)
+
+    return f"""
+    <div class="stack">
+      <div class="panel">
+        <h2>买入总览</h2>
+        <div class="overview-stats">
+          <div class="stat-item stat-a">{a_count}<span>A级</span></div>
+          <div class="stat-item stat-b">{b_count}<span>B级</span></div>
+          <div class="stat-item stat-c">{c_count}<span>C级</span></div>
+          <div class="stat-item stat-d">{d_count}<span>D级</span></div>
+          <div class="stat-item stat-total">{a_count + b_count}<span>A+B 可买</span></div>
+        </div>
+        <p class="muted" style="margin-top:4px;">数据日期：{escape(items[0].data_date) if items else 'N/A'}。A+B 共 {a_count + b_count} 个，占总数的 {(a_count + b_count) / max(len(items), 1):.0%}。</p>
+      </div>
+
+      <div class="panel">
+        <h2>强烈推荐 ({len(strong_buy)}) <span style="font-size:14px;color:var(--muted);font-weight:normal;">— A级信号 + 无追高/破位风险</span></h2>
+        <div class="buy-grid">{strong_cards if strong_cards else '<p class="muted">暂无符合条件的标的</p>'}</div>
+      </div>
+
+      <div class="panel">
+        <h2>可关注 ({len(watch)}) <span style="font-size:14px;color:var(--muted);font-weight:normal;">— A级有风险提示 或 B级高质量</span></h2>
+        <div class="buy-grid">{watch_cards if watch_cards else '<p class="muted">暂无符合条件的标的</p>'}</div>
+      </div>
+    </div>"""
+
+
+def _buy_reason(item: ScoredTicker) -> str:
+    """根据评分数据生成一句话推荐理由。"""
+    reasons = []
+    val = item.valuation_score or 0
+    trend = item.trend_score or 0
+    quality = item.quality_score or 0
+    dist = item.distance_to_sma60_pct or 0
+
+    if quality >= 90:
+        reasons.append("基本面极优")
+    elif quality >= 75:
+        reasons.append("基本面扎实")
+    if val >= 75:
+        reasons.append("估值便宜")
+    elif val >= 60:
+        reasons.append("估值合理")
+    if trend >= 80:
+        reasons.append("趋势强劲")
+    elif trend >= 65:
+        reasons.append("趋势稳健")
+    if abs(dist) <= 0.03:
+        reasons.append("贴近60日线，买点舒适")
+    if not reasons:
+        reasons.append("综合评分优秀")
+    return "，".join(reasons)
 
 
 def print_terminal_summary(items: list[ScoredTicker], *, limit: int = 12) -> str:
@@ -373,7 +524,7 @@ def _render_breakdown_row(item: ScoredTicker, row_index: int) -> str:
     inner = "\n".join(sections)
     return (
         f'<tr class="breakdown-row" id="bd-{row_index}" style="display:none">'
-        f'<td colspan="13"><div class="breakdown-panel">{inner}</div></td>'
+        f'<td colspan="12"><div class="breakdown-panel">{inner}</div></td>'
         f"</tr>"
     )
 
@@ -399,14 +550,19 @@ def _render_breakdown_section(title: str, items: list) -> str:
     )
 
 
-def _render_explanation() -> str:
-    """渲染 HTML 顶部的评分说明区块。
-
-    作用：
-    - 直接在看板里解释信号等级和评分逻辑
-    - 让使用者不需要翻代码也能理解结果
-    """
-    return """
+def _render_explanation(config=None) -> str:
+    """渲染 HTML 顶部的评分说明区块，阈值从配置动态读取。"""
+    if config is None:
+        from stockscope.models import ScoringConfig
+        config = ScoringConfig.defaults()
+    se = config.stock_entry
+    a = config.a_threshold
+    b = config.b_threshold
+    c = config.c_threshold
+    vw = f"{se.valuation_weight:.0%}"
+    tw = f"{se.trend_weight:.0%}"
+    qw = f"{se.quality_weight:.0%}"
+    return f"""
 <div class="stack">
   <div class="panel">
     <h2>评分说明</h2>
@@ -423,14 +579,14 @@ def _render_explanation() -> str:
         <tr>
           <td>信号</td>
           <td>A 最强，D 最弱</td>
-          <td>A: 78分以上，B: 64-77，C: 50-63，D: 50以下</td>
+          <td>A: {a}分以上，B: {b}-{a - 1}，C: {c}-{b - 1}，D: {c}分以下</td>
           <td>由入场分映射而来，主要用于快速判断当前是否值得重点关注。</td>
         </tr>
         <tr>
           <td>入场分</td>
           <td>最终总分，最重要</td>
-          <td>64分以上可进入观察，78分以上可重点关注</td>
-          <td>按估值分 40% + 趋势分 40% + 质量分 20% 计算，再根据是否贴近60日线、是否财报临近、是否过贵或质量偏弱做加减分。</td>
+          <td>{b}分以上可进入观察，{a}分以上可重点关注</td>
+          <td>按估值分 {vw} + 趋势分 {tw} + 质量分 {qw} 计算，再根据是否贴近60日线、是否财报临近、是否过贵或质量偏弱做加减分。</td>
         </tr>
         <tr>
           <td>估值分</td>

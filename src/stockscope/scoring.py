@@ -166,17 +166,14 @@ def score_quality(f: Fundamentals, *, config: QualityConfig, collector: Breakdow
     score = q.base
 
     pct_factors = [
-        ("营收增长", f.revenue_growth, q.revenue_growth, "band"),
-        ("盈利增长", f.earnings_growth, q.earnings_growth, "band"),
-        ("毛利率", f.gross_margins, q.gross_margins, "margin"),
-        ("净利率", f.profit_margins, q.profit_margins, "margin"),
-        ("ROE", f.return_on_equity, q.return_on_equity, "margin"),
+        ("营收增长", f.revenue_growth, q.revenue_growth),
+        ("盈利增长", f.earnings_growth, q.earnings_growth),
+        ("毛利率", f.gross_margins, q.gross_margins),
+        ("净利率", f.profit_margins, q.profit_margins),
+        ("ROE", f.return_on_equity, q.return_on_equity),
     ]
-    for label, value, thresh, kind in pct_factors:
-        if kind == "inverse":
-            s, detail = _lower_detail(value, thresh.good, thresh.ok, thresh.bad, thresh.weight)
-        else:
-            s, detail = _higher_detail(value, thresh.good, thresh.ok, thresh.bad, thresh.weight)
+    for label, value, thresh in pct_factors:
+        s, detail = _higher_detail(value, thresh.good, thresh.ok, thresh.bad, thresh.weight)
         score += s
         if collector:
             collector.add(factor=label, value=_fmt_v(value, is_pct=True), score=s, detail=detail, category="quality")
@@ -430,86 +427,6 @@ def finalize_signal(score: int, notes: list[str], *, config: ScoringConfig) -> t
     return score, signal, note
 
 
-def band_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """按分段阈值给"越高越好"的指标打分。
-
-    作用：
-    - 适合营收增长、利润增长这类指标
-    - 把原始财务值映射成统一分数
-    """
-    if value is None:
-        return 0
-    if value >= good:
-        return weight
-    if value >= ok:
-        return round(weight * 0.5)
-    if value <= bad:
-        return -weight
-    return 0
-
-
-def margin_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """按阈值给利润率类指标打分。
-
-    作用：
-    - 适合毛利率、净利率这类质量指标
-    - 把不同量纲的指标统一转成可累加分数
-    """
-    if value is None:
-        return 0
-    if value >= good:
-        return weight
-    if value >= ok:
-        return round(weight * 0.5)
-    if value <= bad:
-        return -weight
-    return 0
-
-
-def roe_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """对 ROE 复用利润率类打分逻辑。
-
-    作用：
-    - 避免重复实现相同阈值判断
-    - 让 ROE 的评分口径与其他质量指标保持一致
-    """
-    return margin_score(value, good=good, ok=ok, bad=bad, weight=weight)
-
-
-def inverse_score(value: float | None, *, good: float, ok: float, bad: float, weight: int) -> int:
-    """按分段阈值给"越低越好"的指标打分。
-
-    作用：
-    - 适合 PE、PS、EV/EBITDA、负债等指标
-    - 把估值和杠杆风险统一转成分数
-    """
-    if value is None:
-        return 0
-    if value <= good:
-        return weight
-    if value <= ok:
-        return round(weight * 0.5)
-    if value >= bad:
-        return -weight
-    return 0
-
-
-def yield_score(value: float | None, *, good: float, ok: float, weight: int) -> int:
-    """给股息率这类收益型指标打分。
-
-    作用：
-    - 为 ETF 或高股息标的补充收益维度
-    - 在估值判断里加入分红收益参考
-    """
-    if value is None:
-        return 0
-    if value >= good:
-        return weight
-    if value >= ok:
-        return round(weight * 0.5)
-    return 0
-
-
 def cashflow_score(fcf: float | None, ocf: float | None, *, weight: int) -> int:
     """根据自由现金流和经营现金流情况打分。
 
@@ -524,6 +441,17 @@ def cashflow_score(fcf: float | None, ocf: float | None, *, weight: int) -> int:
     if (ocf or 0) > 0:
         return round(weight * 0.5)
     return -weight
+
+
+def yield_score(value: float | None, *, good: float, ok: float, weight: int) -> int:
+    """给股息率这类收益型指标打分。"""
+    if value is None:
+        return 0
+    if value >= good:
+        return weight
+    if value >= ok:
+        return round(weight * 0.5)
+    return 0
 
 
 def relative_strength(asset_return: float | None, benchmark_return: float | None) -> float | None:

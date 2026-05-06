@@ -18,13 +18,10 @@ from stockscope.models import (
     YieldThresholds,
 )
 from stockscope.scoring import (
-    band_score,
     cashflow_score,
     clamp,
     finalize_signal,
-    inverse_score,
     is_earnings_soon,
-    margin_score,
     relative_strength,
     score_etf_entry,
     score_etf_valuation,
@@ -422,33 +419,6 @@ class EntryPenaltyTests(unittest.TestCase):
 # 底层 helper
 # ---------------------------------------------------------------------------
 class HelperFunctionTests(unittest.TestCase):
-    def test_band_score_good(self) -> None:
-        self.assertEqual(band_score(0.15, good=0.08, ok=0.03, bad=-0.05, weight=12), 12)
-
-    def test_band_score_ok(self) -> None:
-        self.assertEqual(band_score(0.05, good=0.08, ok=0.03, bad=-0.05, weight=12), 6)
-
-    def test_band_score_bad(self) -> None:
-        self.assertEqual(band_score(-0.10, good=0.08, ok=0.03, bad=-0.05, weight=12), -12)
-
-    def test_band_score_none(self) -> None:
-        self.assertEqual(band_score(None, good=0.08, ok=0.03, bad=-0.05, weight=12), 0)
-
-    def test_inverse_score_good(self) -> None:
-        self.assertEqual(inverse_score(10, good=18, ok=28, bad=45, weight=12), 12)
-
-    def test_inverse_score_bad(self) -> None:
-        self.assertEqual(inverse_score(60, good=18, ok=28, bad=45, weight=12), -12)
-
-    def test_inverse_score_none(self) -> None:
-        self.assertEqual(inverse_score(None, good=18, ok=28, bad=45, weight=12), 0)
-
-    def test_margin_score_good(self) -> None:
-        self.assertEqual(margin_score(0.50, good=0.45, ok=0.30, bad=0.15, weight=8), 8)
-
-    def test_margin_score_bad(self) -> None:
-        self.assertEqual(margin_score(0.05, good=0.45, ok=0.30, bad=0.15, weight=8), -8)
-
     def test_yield_score_good(self) -> None:
         self.assertEqual(yield_score(0.04, good=0.03, ok=0.015, weight=6), 6)
 

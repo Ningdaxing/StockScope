@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 from statistics import mean
 
 try:
@@ -10,6 +11,8 @@ except ImportError:  # pragma: no cover
     yf = None
 
 from stockscope.models import Fundamentals, PriceSnapshot
+
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 
 class YahooClient:
@@ -34,10 +37,10 @@ class YahooClient:
         ticker = yf.Ticker(symbol)
         fast_info = dict(ticker.fast_info or {})
         quote_type = (fast_info.get("quoteType") or "").upper() or "UNKNOWN"
-        if quote_type == "ETF":
-            info = {}
-        else:
-            with contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stderr(io.StringIO()):
+            if quote_type == "ETF":
+                info = {}
+            else:
                 info = ticker.info or {}
         short_name = info.get("shortName") or info.get("longName") or symbol
         earnings_timestamp = _extract_earnings_timestamp(ticker)
