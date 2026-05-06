@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--output-dir", default="outputs/latest", help="Report output directory")
     run_parser.add_argument("--limit", type=int, default=15, help="Rows to print in terminal")
     run_parser.add_argument("--open", action="store_true", help="Open dashboard in default browser after run")
+
+    serve_parser = subparsers.add_parser("serve", help="Start web dashboard with hourly auto-refresh")
+    serve_parser.add_argument("--config", default="config/watchlist.toml", help="Watchlist TOML path")
+    serve_parser.add_argument("--output-dir", default="outputs/latest", help="Report output directory")
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Server host")
+    serve_parser.add_argument("--port", type=int, default=8081, help="Server port")
     return parser
 
 
@@ -156,6 +162,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_command(args.config, args.output_dir, args.limit, open_browser=args.open)
+    if args.command == "serve":
+        from stockscope.server import serve
+        serve(host=args.host, port=args.port, config_path=args.config, output_dir=args.output_dir)
+        return 0
     parser.error(f"Unknown command: {args.command}")
     return 1
 

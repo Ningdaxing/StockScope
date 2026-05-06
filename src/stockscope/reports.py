@@ -87,6 +87,7 @@ def write_dashboard(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="120">
   <title>StockScope 看板</title>
   <style>
     :root {{
@@ -206,7 +207,7 @@ def write_dashboard(
 <body>
   <div class="wrap">
     <h1>StockScope</h1>
-    <p>生成时间：{escape(generated_at)}。数据日期：{escape(data_date) or 'N/A'}。当前信号仅用于研究分析，不构成自动交易建议。</p>
+    <p>生成时间：{escape(generated_at)}。数据日期：{escape(data_date or 'N/A')}。当前信号仅用于研究分析，不构成自动交易建议。</p>
     <div class="tabs">
       <button class="tab-button active" data-tab="overview">买入总览</button>
       <button class="tab-button" data-tab="signals">信号分组</button>
@@ -337,7 +338,7 @@ def _render_overview(items: list[ScoredTicker]) -> str:
           <div class="stat-item stat-d">{d_count}<span>D级</span></div>
           <div class="stat-item stat-total">{a_count + b_count}<span>A+B 可买</span></div>
         </div>
-        <p class="muted" style="margin-top:4px;">数据日期：{escape(items[0].data_date) if items else 'N/A'}。A+B 共 {a_count + b_count} 个，占总数的 {(a_count + b_count) / max(len(items), 1):.0%}。</p>
+        <p class="muted" style="margin-top:4px;">数据日期：{escape(items[0].data_date or 'N/A') if items else 'N/A'}。A+B 共 {a_count + b_count} 个，占总数的 {(a_count + b_count) / max(len(items), 1):.0%}。</p>
       </div>
 
       <div class="panel">
