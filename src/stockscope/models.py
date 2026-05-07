@@ -72,6 +72,8 @@ class ScoredTicker:
     group: str | None = None
     breakdown: ScoreBreakdown | None = None
     data_date: str | None = None
+    dividend_yield: float | None = None
+    dividend_type: str = "-"
 
 
 # ---------------------------------------------------------------------------

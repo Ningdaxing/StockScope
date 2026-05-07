@@ -144,6 +144,8 @@ def score_ticker(
         return_on_equity=fundamentals.return_on_equity,
         breakdown=breakdown,
         data_date=price.last_date,
+        dividend_yield=fundamentals.dividend_yield,
+        dividend_type=_dividend_type(fundamentals.dividend_yield),
     )
 
 
@@ -464,6 +466,13 @@ def relative_strength(asset_return: float | None, benchmark_return: float | None
     if asset_return is None or benchmark_return is None:
         return None
     return asset_return - benchmark_return
+
+
+def _dividend_type(yield_value: float | None) -> str:
+    """根据股息率判断分红型 / 增长型。"""
+    if yield_value is None:
+        return "-"
+    return "分红型" if yield_value >= 0.015 else "增长型"
 
 
 def is_earnings_soon(timestamp: int | None, *, days: int) -> bool:

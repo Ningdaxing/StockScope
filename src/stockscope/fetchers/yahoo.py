@@ -64,7 +64,7 @@ class YahooClient:
             debt_to_equity=info.get("debtToEquity"),
             return_on_equity=info.get("returnOnEquity"),
             return_on_assets=info.get("returnOnAssets"),
-            dividend_yield=info.get("dividendYield"),
+            dividend_yield=_normalize_yield(info.get("dividendYield")),
             earnings_timestamp=earnings_timestamp,
         )
 
@@ -137,6 +137,13 @@ def is_network_error(error: Exception) -> bool:
     - 区分预期中的访问错误和代码逻辑错误
     """
     return isinstance(error, (TimeoutError, ConnectionError, RuntimeError))
+
+
+def _normalize_yield(value: float | None) -> float | None:
+    """yfinance 返回百分比数值（如 2.7 表示 2.7%），统一转为小数。"""
+    if value is None:
+        return None
+    return value / 100
 
 
 def _extract_earnings_timestamp(ticker: "yf.Ticker") -> int | None:

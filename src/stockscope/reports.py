@@ -186,6 +186,19 @@ def write_dashboard(
     .stat-c {{ color: var(--warn); }}
     .stat-d {{ color: var(--bad); }}
     .stat-total {{ border-color: var(--accent); }}
+    .filter-chip {{ cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }}
+    .filter-chip:hover {{ transform: translateY(-2px); box-shadow: 0 8px 20px rgba(23,73,77,0.15); }}
+    .filter-chip.active {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(23,73,77,0.25); border-color: var(--accent); }}
+    .sort-bar {{ display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }}
+    .sort-btn {{
+      font-family: inherit; font-size: 0.78rem;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 6px; padding: 4px 12px; cursor: pointer;
+      color: var(--muted); transition: all 0.15s;
+    }}
+    .sort-btn:hover {{ color: var(--ink); border-color: var(--accent); }}
+    .sort-btn.active-sort {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
+    .sort-label {{ font-size: 0.78rem; color: var(--muted); margin-right: 2px; }}
     .buy-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }}
     .buy-card {{
       background: var(--panel); border: 1px solid var(--line);
@@ -260,7 +273,53 @@ def write_dashboard(
         btn.textContent = '▸';
       }}
     }}
-  </script>
+ 
+    // 信号过滤
+    let currentFilter = 'ALL';
+    function filterSignal(signal) {{
+      currentFilter = signal;
+      document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+      const chip = document.querySelector('.filter-chip[data-signal="' + signal + '"]');
+      if (chip) chip.classList.add('active');
+
+      document.querySelectorAll('.tab-button').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === 'signals'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'signals'));
+
+      document.querySelectorAll('.group-panel tbody tr').forEach(row => {{
+        if (row.classList.contains('breakdown-row')) return;
+        const sig = row.getAttribute('data-signal');
+        const show = signal === 'ALL' || sig === signal;
+        row.style.display = show ? '' : 'none';
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('breakdown-row')) next.style.display = 'none';
+      }});
+    }}
+
+    // 表格排序
+    function sortTable(btn, groupId, key) {{
+      const panel = document.querySelector('.group-panel[data-group="' + groupId + '"]');
+      if (!panel) return;
+      panel.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active-sort'));
+      btn.classList.add('active-sort');
+
+      const tbody = panel.querySelector('tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr:not(.breakdown-row)'));
+      const dir = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
+      btn.dataset.dir = dir;
+
+      const attr = 'data-sort-' + key;
+      rows.sort((a, b) => {{
+        let va = parseFloat(a.getAttribute(attr)) || 0;
+        let vb = parseFloat(b.getAttribute(attr)) || 0;
+        return dir === 'asc' ? va - vb : vb - va;
+      }});
+
+      rows.forEach(row => {{
+        tbody.appendChild(row);
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('breakdown-row')) tbody.appendChild(next);
+      }});
+    }} </script>
 </body>
 </html>
 """
@@ -319,6 +378,7 @@ def _render_overview(items: list[ScoredTicker]) -> str:
             <span>现价 {price}</span>
             <span>60日线 <span class="{_dist_class(item.distance_to_sma60_pct)}">{dist}</span></span>
             <span>回撤 <span class="{_dd_class(item.drawdown_from_high_pct)}">{dd}</span></span>
+            <span>{_div_badge(item)}</span>
           </div>
           <div class="buy-card-reason">{escape(reason)}</div>
           <div class="buy-card-note {_note_class(item.note)}">{escape(note)}</div>
@@ -332,11 +392,11 @@ def _render_overview(items: list[ScoredTicker]) -> str:
       <div class="panel">
         <h2>买入总览</h2>
         <div class="overview-stats">
-          <div class="stat-item stat-a">{a_count}<span>A级</span></div>
-          <div class="stat-item stat-b">{b_count}<span>B级</span></div>
-          <div class="stat-item stat-c">{c_count}<span>C级</span></div>
-          <div class="stat-item stat-d">{d_count}<span>D级</span></div>
-          <div class="stat-item stat-total">{a_count + b_count}<span>A+B 可买</span></div>
+          <div class="stat-item stat-a filter-chip" data-signal="A" onclick="filterSignal('A')">{a_count}<span>A级</span></div>
+          <div class="stat-item stat-b filter-chip" data-signal="B" onclick="filterSignal('B')">{b_count}<span>B级</span></div>
+          <div class="stat-item stat-c filter-chip" data-signal="C" onclick="filterSignal('C')">{c_count}<span>C级</span></div>
+          <div class="stat-item stat-d filter-chip" data-signal="D" onclick="filterSignal('D')">{d_count}<span>D级</span></div>
+          <div class="stat-item stat-total filter-chip active" data-signal="ALL" onclick="filterSignal('ALL')">{len(items)}<span>全部</span></div>
         </div>
         <p class="muted" style="margin-top:4px;">数据日期：{escape(items[0].data_date or 'N/A') if items else 'N/A'}。A+B 共 {a_count + b_count} 个，占总数的 {(a_count + b_count) / max(len(items), 1):.0%}。</p>
       </div>
@@ -388,16 +448,18 @@ def print_terminal_summary(items: list[ScoredTicker], *, limit: int = 12) -> str
     - 让你不打开文件也能先看买点信号
     """
     header = (
-        f"{'代码':<8} {'名称':<18} {'类型':<6} {'信号':<4} {'入场分':>6} "
-        f"{'估值分':>6} {'趋势分':>6} {'质量分':>6} {'说明'}"
+        f"{'代码':<8} {'名称':<16} {'类型':<6} {'信号':<4} {'入场分':>6} "
+        f"{'估值分':>6} {'趋势分':>6} {'质量分':>6} {'分红':<8} {'说明'}"
     )
     lines = [header, "-" * len(header)]
     for item in items[:limit]:
         quality = "-" if item.quality_score is None else str(item.quality_score)
-        short_name = item.short_name[:18]
+        short_name = item.short_name[:16]
+        div_yield = _fmt_pct(item.dividend_yield)
+        div_info = f"{item.dividend_type}({div_yield})" if item.dividend_yield is not None else "-"
         lines.append(
-            f"{item.symbol:<8} {short_name:<18} {item.asset_type:<6} {item.signal:<4} {item.entry_score:>6} "
-            f"{item.valuation_score:>6} {item.trend_score:>6} {quality:>6} {_translate_note(item.note)}"
+            f"{item.symbol:<8} {short_name:<16} {item.asset_type:<6} {item.signal:<4} {item.entry_score:>6} "
+            f"{item.valuation_score:>6} {item.trend_score:>6} {quality:>6} {div_info:<8} {_translate_note(item.note)}"
         )
     return "\n".join(lines)
 
@@ -449,6 +511,16 @@ def _dd_class(dd: float | None) -> str:
     return ""
 
 
+def _div_badge(item: ScoredTicker) -> str:
+    """股息率标签：分红型绿色，增长型默认色。"""
+    if item.dividend_yield is None:
+        return "-"
+    y = _fmt_pct(item.dividend_yield)
+    if item.dividend_type == "分红型":
+        return f'<span class="note-good">{item.dividend_type} {y}</span>'
+    return f'{item.dividend_type} {y}'
+
+
 def _render_row(item: ScoredTicker, row_index: int) -> str:
     """渲染单条评分结果 + 展开按钮 + 隐藏拆解子行。"""
     quality = "-" if item.quality_score is None else str(item.quality_score)
@@ -463,7 +535,7 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
         toggle_html = f"<button class='toggle-btn' onclick='toggleBreakdown({row_index})' title='评分拆解'>▸</button>"
         breakdown_html = _render_breakdown_row(item, row_index)
     main_row = (
-        "<tr>"
+        f'<tr data-signal="{escape(item.signal)}" data-sort-entry="{item.entry_score}" data-sort-valuation="{item.valuation_score}" data-sort-trend="{item.trend_score}" data-sort-quality="{quality}">'
         f"<td class='mono'>{escape(item.symbol)}</td>"
         f"<td>{escape(item.short_name)}</td>"
         f"<td>{escape(item.asset_type)}</td>"
@@ -472,6 +544,7 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
         f"<td class='{_valuation_class(item.valuation_score)}'>{item.valuation_score}</td>"
         f"<td class='{_score_class(item.trend_score, excellent=75, weak=45)}'>{item.trend_score}</td>"
         f"<td class='{_score_class(item.quality_score, excellent=75, weak=45)}'>{quality}</td>"
+        f"<td>{_div_badge(item)}</td>"
         f"<td>{price}</td>"
         f"<td class='{_dist_class(item.distance_to_sma60_pct)}'>{dist}</td>"
         f"<td class='{_dd_class(item.drawdown_from_high_pct)}'>{drawdown}</td>"
@@ -525,7 +598,7 @@ def _render_breakdown_row(item: ScoredTicker, row_index: int) -> str:
     inner = "\n".join(sections)
     return (
         f'<tr class="breakdown-row" id="bd-{row_index}" style="display:none">'
-        f'<td colspan="12"><div class="breakdown-panel">{inner}</div></td>'
+        f'<td colspan="13"><div class="breakdown-panel">{inner}</div></td>'
         f"</tr>"
     )
 
@@ -664,12 +737,19 @@ def _render_group_panel(group_id: str, rows_html: str, items: list[ScoredTicker]
     summary = f"A({signal_counts['A']}) B({signal_counts['B']}) C({signal_counts['C']}) D({signal_counts['D']})"
 
     if not items:
-        rows_html = '<tr><td colspan="12" class="muted" style="text-align:center;">该分组暂无数据</td></tr>'
+        rows_html = '<tr><td colspan="13" class="muted" style="text-align:center;">该分组暂无数据</td></tr>'
 
     return f"""<div class="group-panel {active_class}" data-group="{group_id}">
       <div class="panel">
         <div class="group-header">
           <span class="signal-summary">{summary}</span>
+        </div>
+        <div class="sort-bar">
+          <span class="sort-label">排序:</span>
+          <button class="sort-btn active-sort" onclick="sortTable(this, '{group_id}', 'entry')">入场分</button>
+          <button class="sort-btn" onclick="sortTable(this, '{group_id}', 'valuation')">估值分</button>
+          <button class="sort-btn" onclick="sortTable(this, '{group_id}', 'trend')">趋势分</button>
+          <button class="sort-btn" onclick="sortTable(this, '{group_id}', 'quality')">质量分</button>
         </div>
         <table>
           <thead>
@@ -682,6 +762,7 @@ def _render_group_panel(group_id: str, rows_html: str, items: list[ScoredTicker]
               <th>估值分</th>
               <th>趋势分</th>
               <th>质量分</th>
+              <th>分红</th>
               <th>现价</th>
               <th>距60日线</th>
               <th>距52周高点回撤</th>
