@@ -91,46 +91,46 @@ def write_dashboard(
   <title>StockScope 看板</title>
   <style>
     :root {{
-      --bg: #f6f2e8;
-      --panel: #fffaf0;
-      --ink: #1d2a2a;
-      --muted: #5b6a6a;
-      --line: #d7cfbe;
-      --accent: #17494d;
-      --good: #1c6b39;
-      --warn: #9d6b14;
-      --bad: #8f2d2d;
+      --bg: #0d1117;
+      --panel: #161b22;
+      --ink: #c9d1d9;
+      --muted: #8b949e;
+      --line: #30363d;
+      --accent: #58a6ff;
+      --good: #3fb950;
+      --warn: #d2991d;
+      --bad: #f85149;
     }}
-    body {{ margin: 0; background: radial-gradient(circle at top, #fdf7ea, var(--bg)); color: var(--ink); font-family: Georgia, "Times New Roman", serif; }}
+    body {{ margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }}
     .wrap {{ max-width: 1200px; margin: 0 auto; padding: 32px 20px 48px; }}
-    h1 {{ margin: 0 0 8px; font-size: 44px; }}
+    h1 {{ margin: 0 0 8px; font-size: 44px; color: #f0f6fc; }}
     p {{ color: var(--muted); }}
     h2 {{ margin: 0 0 14px; font-size: 22px; }}
-    .panel {{ background: rgba(255,250,240,0.92); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: 0 16px 40px rgba(23,73,77,0.08); }}
+    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }}
     .tabs {{ display: flex; gap: 10px; margin: 20px 0 18px; }}
     .tab-button {{
       border: 1px solid var(--line);
-      background: rgba(255,250,240,0.92);
+      background: var(--panel);
       color: var(--ink);
       border-radius: 999px;
       padding: 10px 16px;
       cursor: pointer;
       font-size: 14px;
     }}
-    .tab-button.active {{ background: var(--accent); color: #fffaf0; border-color: var(--accent); }}
+    .tab-button.active {{ background: var(--accent); color: #0d1117; border-color: var(--accent); }}
     .tab-panel {{ display: none; }}
     .tab-panel.active {{ display: block; }}
     .group-tabs {{ display: flex; gap: 10px; margin: 10px 0 16px; flex-wrap: wrap; }}
     .group-tab {{
       border: 1px solid var(--line);
-      background: rgba(255,250,240,0.92);
+      background: var(--panel);
       color: var(--ink);
       border-radius: 999px;
       padding: 8px 14px;
       cursor: pointer;
       font-size: 13px;
     }}
-    .group-tab.active {{ background: var(--accent); color: #fffaf0; border-color: var(--accent); }}
+    .group-tab.active {{ background: var(--accent); color: #0d1117; border-color: var(--accent); }}
     .group-panel {{ display: none; }}
     .group-panel.active {{ display: block; }}
     .group-header {{ margin-bottom: 10px; font-size: 13px; color: var(--muted); }}
@@ -160,11 +160,11 @@ def write_dashboard(
     }}
     .bd-section {{ margin-bottom: 8px; }}
     .bd-formula {{
-      display: block; background: #f0ede4; padding: 6px 10px;
+      display: block; background: #21262d; padding: 6px 10px;
       border-radius: 4px; white-space: pre-wrap; font-size: 0.8rem;
     }}
     .breakdown-table {{ width: 100%; font-size: 0.8rem; }}
-    .breakdown-table td {{ padding: 2px 8px; border-bottom: 1px solid #f0ede4; }}
+    .breakdown-table td {{ padding: 2px 8px; border-bottom: 1px solid var(--line); }}
     .positive {{ color: var(--good); font-weight: bold; }}
     .negative {{ color: var(--bad); font-weight: bold; }}
     .neutral {{ color: var(--muted); }}
@@ -185,10 +185,10 @@ def write_dashboard(
     .stat-b {{ color: var(--accent); }}
     .stat-c {{ color: var(--warn); }}
     .stat-d {{ color: var(--bad); }}
-    .stat-total {{ border-color: var(--accent); }}
+    .stat-total {{ border-color: var(--accent); color: var(--accent); }}
     .filter-chip {{ cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }}
-    .filter-chip:hover {{ transform: translateY(-2px); box-shadow: 0 8px 20px rgba(23,73,77,0.15); }}
-    .filter-chip.active {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(23,73,77,0.25); border-color: var(--accent); }}
+    .filter-chip:hover {{ transform: translateY(-2px); box-shadow: 0 8px 20px rgba(88,166,255,0.10); }}
+    .filter-chip.active {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(88,166,255,0.15); border-color: var(--accent); }}
     .sort-bar {{ display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }}
     .sort-btn {{
       font-family: inherit; font-size: 0.78rem;
@@ -197,7 +197,7 @@ def write_dashboard(
       color: var(--muted); transition: all 0.15s;
     }}
     .sort-btn:hover {{ color: var(--ink); border-color: var(--accent); }}
-    .sort-btn.active-sort {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
+    .sort-btn.active-sort {{ background: var(--accent); color: #0d1117; border-color: var(--accent); }}
     .sort-label {{ font-size: 0.78rem; color: var(--muted); margin-right: 2px; }}
     .buy-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }}
     .buy-card {{
@@ -205,7 +205,7 @@ def write_dashboard(
       border-radius: 12px; padding: 14px 16px;
       transition: box-shadow 0.2s;
     }}
-    .buy-card:hover {{ box-shadow: 0 6px 20px rgba(23,73,77,0.10); }}
+    .buy-card:hover {{ box-shadow: 0 6px 20px rgba(88,166,255,0.10); }}
     .buy-card-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
     .buy-symbol {{ font-size: 1.05rem; }}
     .buy-entry {{ margin-left: auto; font-weight: bold; font-size: 1.1rem; color: var(--accent); }}
@@ -225,6 +225,7 @@ def write_dashboard(
       <button class="tab-button active" data-tab="overview">买入总览</button>
       <button class="tab-button" data-tab="signals">信号分组</button>
       <button class="tab-button" data-tab="guide">评分说明</button>
+      <button class="tab-button" data-tab="research">研报中心</button>
     </div>
     <section id="overview" class="tab-panel active">
       {overview_html}
@@ -235,6 +236,9 @@ def write_dashboard(
     </section>
     <section id="guide" class="tab-panel">
       {explanation}
+    </section>
+    <section id="research" class="tab-panel">
+      <iframe src="/research" style="width:100%;height:70vh;border:none;border-radius:8px;background:var(--panel);"></iframe>
     </section>
   </div>
   <script>
@@ -257,6 +261,7 @@ def write_dashboard(
         const target = button.getAttribute('data-group');
         groupButtons.forEach((item) => item.classList.toggle('active', item === button));
         groupPanels.forEach((panel) => panel.classList.toggle('active', panel.getAttribute('data-group') === target));
+        resetSignalFilter();
       }});
     }});
     // 评分拆解展开/折叠
@@ -274,7 +279,19 @@ def write_dashboard(
       }}
     }}
  
-    // 信号过滤
+    // 重置信号筛选
+    function resetSignalFilter() {{
+      currentFilter = 'ALL';
+      document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+      const allChip = document.querySelector('.filter-chip[data-signal="ALL"]');
+      if (allChip) allChip.classList.add('active');
+      document.querySelectorAll('.group-panel tbody tr').forEach(row => {{
+        if (row.classList.contains('breakdown-row')) return;
+        row.style.display = '';
+      }});
+    }}
+
+        // 信号过滤
     let currentFilter = 'ALL';
     function filterSignal(signal) {{
       currentFilter = signal;

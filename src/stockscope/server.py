@@ -47,6 +47,8 @@ def start_scheduler(
 
 
 def create_app(*, output_dir: str) -> FastAPI:
+    from stockscope.research_index import generate_index
+
     app = FastAPI(title="StockScope")
 
     html_path = Path(output_dir) / "dashboard.html"
@@ -60,6 +62,18 @@ def create_app(*, output_dir: str) -> FastAPI:
             "<p>数据尚未生成，请稍后刷新页面。</p>"
             "</body></html>"
         )
+
+    @app.get("/research", response_class=HTMLResponse)
+    def research_center():
+        index_path = generate_index(output_dir)
+        return index_path.read_text(encoding="utf-8")
+
+    @app.get("/research/{filename}", response_class=HTMLResponse)
+    def research_report(filename: str):
+        filepath = Path(output_dir) / filename
+        if filepath.exists() and filepath.suffix == ".html":
+            return filepath.read_text(encoding="utf-8")
+        return HTMLResponse(content="<h1>404</h1>", status_code=404)
 
     return app
 

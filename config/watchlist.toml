@@ -2,12 +2,19 @@
 benchmark = "SPY"
 
 [groups]
-etfs = ["QQQM", "VOO", "SPY", "SMH", "SOXX", "ITA", "SCHD", "VYM", "EWY"]
-core_growth = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "AVGO", "AMD", "TSM", "MU","SNDK"]
-defense_space = ["LMT", "NOC", "RTX", "PLTR", "ASTS", "RKLB", "PL", "LUNR", "FLY", "RDW", "SIDU"]
-dividend = ["KO", "PG", "PEP", "JNJ", "XOM", "CVX"]
+"七巨头" = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"]
+"半导体与AI" = ["AVGO", "AMD", "TSM", "MU", "SNDK", "QCOM", "AMAT", "ARM"]
+"云计算与软件" = ["CRM", "ADBE", "NOW", "SNOW", "ORCL"]
+"金融" = ["JPM", "BAC", "GS", "V", "MA", "BX"]
+"医疗健康" = ["JNJ", "UNH", "LLY", "ABBV", "ISRG"]
+"消费" = ["COST", "WMT", "KO", "PG", "PEP"]
+"能源" = ["XOM", "CVX", "COP"]
+"国防与航天" = ["LMT", "NOC", "RTX", "PLTR", "ASTS", "RKLB", "LUNR", "RDW"]
+"宽基ETF" = ["SPY", "VOO", "QQQM", "IWM", "DIA"]
+"行业ETF" = ["SMH", "SOXX", "XLE", "XLF", "ITA"]
+"策略ETF" = ["SCHD", "VYM"]
 
 [tickers]
-manual = []
+manual = ["APH"]
 
 [name_overrides]
