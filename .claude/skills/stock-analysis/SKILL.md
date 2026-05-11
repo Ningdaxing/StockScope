@@ -1,6 +1,6 @@
 ---
 name: stock-analysis
-description: 美股个股深度分析。给定任意美股 ticker（如 AAPL、TSM、APH），自动拉取 yfinance 实时数据并生成完整中文深度分析报告（HTML），包含 9 大章节：公司定位、核心财务、估值、成长性、利润效率、资产负债、机构持仓与分析师共识、资本配置、最终判断。输出到 outputs/latest/{ticker}-analysis.html 并自动打开浏览器。当用户对某个美股代码要深度分析、财报解读、估值判断时触发。
+description: 美股个股深度分析。给定任意美股 ticker（如 AAPL、TSM、APH），自动拉取 yfinance 实时数据并生成完整中文深度分析报告（HTML），包含 10 大章节：公司定位、核心财务、估值、成长性、利润效率、资产负债、资本配置、机构持仓与分析师共识、最终判断、StockScope 评分框架。输出到 outputs/latest/{ticker}-analysis.html 并自动打开浏览器。当用户对某个美股代码要深度分析、财报解读、估值判断时触发。
 ---
 
 # Stock Analysis — 美股个股深度分析
@@ -26,7 +26,8 @@ python scripts/analyze.py <TICKER>
 `scripts/analyze.py` 负责：
 
 - 通过 yfinance 拉取：季度财报、年度收入、EPS 历史、资产负债表、现金流、机构持仓、分析师评级
-- 自动生成深色主题 HTML 报告（9 个章节，带数据表格、指标卡片、颜色高亮）
+- 自动生成深色主题 HTML 报告（10 个章节，带数据表格、指标卡片、颜色高亮）
+- 集成 StockScope 评分管线：调用入场分/质量分/估值分/趋势分/时钟模型/红牌机制，含完整因子拆解
 - 根据 PEG/Fwd PE 自动判断估值档位并生成一句话定位
 
 ## 报告章节
@@ -40,6 +41,7 @@ python scripts/analyze.py <TICKER>
 7. 资本配置策略（并购 / 发债 / 分红 / 回购）
 8. 机构持仓 & 分析师共识
 9. 最终判断（自动评级 + 关键数据摘要）
+10. StockScope 评分框架 — 信号等级(A/B/C/D) + 入场分 + 质量/估值/趋势分拆解 + 时钟模型 + 红牌检查 + 评分基准参考（含因子及格线对照表）
 
 ## 依赖
 

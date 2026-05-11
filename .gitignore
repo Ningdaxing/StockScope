@@ -8,3 +8,4 @@ outputs/
 .claude/*
 !.claude/skills/
 .DS_Store
+**/.translate_cache.json

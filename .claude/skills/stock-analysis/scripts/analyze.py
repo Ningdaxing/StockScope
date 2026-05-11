@@ -10,6 +10,13 @@ from pathlib import Path
 
 import yfinance as yf
 
+# StockScope 评分子系统路径
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent  # stock-analysis/
+_SKILLS_DIR = _SCRIPTS_DIR.parent                       # skills/
+_SRC_DIR = Path(__file__).resolve().parent.parent.parent.parent / "src"  # StockScope/src/
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
 # 翻译缓存
 _TRANSLATE_CACHE_PATH = Path(__file__).parent / ".translate_cache.json"
 
@@ -376,10 +383,46 @@ def fetch_data(ticker: str) -> dict:
 
 
 # ══════════════════════════════════════════════════
+# StockScope 评分子系统
+# ══════════════════════════════════════════════════
+
+def run_stockscope_scoring(ticker: str) -> dict | None:
+    """调用 StockScope 评分管线，返回评分结果字典（供 HTML 渲染使用）。"""
+    try:
+        from stockscope.fetchers.yahoo import YahooClient
+        from stockscope.scoring import score_ticker as ss_score_ticker
+        from stockscope.config import load_scoring_config
+
+        client = YahooClient(cache_dir=_SRC_DIR.parent / "outputs" / "cache")
+        scoring_config = load_scoring_config()
+        benchmark_chart = client.fetch_chart("SPY")
+        fundamentals = client.fetch_summary(ticker)
+        chart = client.fetch_chart(ticker)
+        scored = ss_score_ticker(fundamentals, chart, benchmark_chart, config=scoring_config)
+        return {
+            "entry_score": scored.entry_score,
+            "signal": scored.signal,
+            "note": scored.note,
+            "quality_score": scored.quality_score,
+            "valuation_score": scored.valuation_score,
+            "trend_score": scored.trend_score,
+            "trend_direction": scored.trend_direction,
+            "red_flags": scored.red_flags,
+            "dividend_type": scored.dividend_type,
+            "distance_to_sma60_pct": scored.distance_to_sma60_pct,
+            "drawdown_from_high_pct": scored.drawdown_from_high_pct,
+            "breakdown": scored.breakdown,
+        }
+    except Exception as exc:
+        print(f"[StockScope 评分] 评分管线异常: {exc}", file=sys.stderr)
+        return None
+
+
+# ══════════════════════════════════════════════════
 # HTML 渲染
 # ══════════════════════════════════════════════════
 
-def render(data: dict) -> str:
+def render(data: dict, scored: dict | None = None) -> str:
     d = data
     t = d["ticker"]
     today = datetime.now().strftime("%Y-%m-%d")
@@ -675,6 +718,9 @@ def render(data: dict) -> str:
   </div>
 </section>
 
+<!-- 10. StockScope 评分框架 -->
+{_render_scoring_section(t, scored)}
+
 <footer>
   <p>StockScope 个股深度分析 · 数据来源：Yahoo Finance</p>
   <p>数据截止：{today} · 不构成投资建议 · 投资有风险，决策需谨慎</p>
@@ -683,6 +729,279 @@ def render(data: dict) -> str:
 </body>
 </html>"""
     return html
+
+
+def _render_scoring_section(ticker: str, scored: dict | None) -> str:
+    """渲染 StockScope 评分框架 HTML 片段。"""
+    if not scored:
+        return """<section>
+  <h2><span class="num">10</span> StockScope 评分框架（如何选股）</h2>
+  <div class="info-card" style="text-align:center;color:var(--text-secondary);padding:40px;">
+    评分数据获取失败，请检查网络后重试。
+  </div>
+</section>"""
+
+    # ── 时钟方向中文 ──
+    clock_map = {
+        "strong_uptrend": "1点钟（强势多头）",
+        "confirmed_uptrend": "2点钟（最佳买入）",
+        "mixed": "3点钟（犹豫）",
+        "downtrend": "4-6点钟（下跌）",
+    }
+    clock_label = clock_map.get(scored.get("trend_direction", ""), "未知")
+
+    # ── 信号颜色 ──
+    sig = scored["signal"]
+    sig_color = {"A": "#3fb950", "B": "#58a6ff", "C": "#d2991d", "D": "#f85149"}.get(sig, "#8b949e")
+
+    # ── 红牌标签 ──
+    red_flag_labels = {
+        "negative_ocf": "经营现金流为负",
+        "story_driven": "故事驱动型（EBIT < 0 且 OCF ≤ 0）",
+        "negative_fcf": "自由现金流为负",
+        "small_revenue": "收入规模过小",
+    }
+    red_flags_raw = scored.get("red_flags", "")
+    red_flags_list = [f.strip() for f in red_flags_raw.split(",") if f.strip()] if red_flags_raw else []
+
+    # ── 拆解明细渲染 ──
+    bd = scored.get("breakdown")
+    if bd is None:
+        quality_rows = valuation_rows = trend_rows = adjust_rows = "<tr><td colspan='4' style='color:var(--text-secondary);'>无拆解数据</td></tr>"
+        q_total = v_total = t_total = 0
+    else:
+        q_items = bd.quality_items if hasattr(bd, "quality_items") else []
+        q_total = sum(item.score for item in q_items) + (bd.quality_base if hasattr(bd, "quality_base") else 50)
+        quality_rows = ""
+        for item in q_items:
+            cls = "val-up" if item.score > 0 else "val-down" if item.score < 0 else ""
+            quality_rows += f"<tr><td>{item.factor}</td><td>{item.value}</td><td class=\"{cls}\">{item.score:+d}</td><td style=\"font-size:.8em;color:var(--text-secondary);\">{item.detail}</td></tr>"
+
+        v_items = bd.valuation_items if hasattr(bd, "valuation_items") else []
+        v_total = sum(item.score for item in v_items) + (bd.valuation_base if hasattr(bd, "valuation_base") else 50)
+        valuation_rows = ""
+        for item in v_items:
+            cls = "val-up" if item.score > 0 else "val-down" if item.score < 0 else ""
+            valuation_rows += f"<tr><td>{item.factor}</td><td>{item.value}</td><td class=\"{cls}\">{item.score:+d}</td><td style=\"font-size:.8em;color:var(--text-secondary);\">{item.detail}</td></tr>"
+
+        t_items = bd.trend_items if hasattr(bd, "trend_items") else []
+        t_total = sum(item.score for item in t_items) + (bd.trend_base if hasattr(bd, "trend_base") else 50)
+        trend_rows = ""
+        for item in t_items:
+            cls = "val-up" if item.score > 0 else "val-down" if item.score < 0 else ""
+            trend_rows += f"<tr><td>{item.factor}</td><td>{item.value}</td><td class=\"{cls}\">{item.score:+d}</td><td style=\"font-size:.8em;color:var(--text-secondary);\">{item.detail}</td></tr>"
+
+        adjust_items = bd.adjustments if hasattr(bd, "adjustments") else []
+        adjust_rows = ""
+        for item in adjust_items:
+            cls = "val-up" if item.score > 0 else "val-down" if item.score < 0 else ""
+            adjust_rows += f"<tr><td>{item.factor}</td><td>{item.value}</td><td class=\"{cls}\">{item.score:+d}</td><td style=\"font-size:.8em;color:var(--text-secondary);\">{item.detail}</td></tr>"
+        if not adjust_items:
+            adjust_rows = '<tr><td colspan="4" style="color:var(--text-secondary);">无需修正</td></tr>'
+
+    # ── 入场分公式 ──
+    formula = getattr(bd, "entry_formula", "") if bd else ""
+
+    # ── 距离 60 日线 ──
+    dist_60 = scored.get("distance_to_sma60_pct")
+    dist_60_str = f"{dist_60:+.1%}" if dist_60 is not None else "—"
+
+    # ── 回撤 ──
+    dd = scored.get("drawdown_from_high_pct")
+    dd_str = f"{dd:+.1%}" if dd is not None else "—"
+
+    return f"""<section>
+  <h2><span class="num">10</span> StockScope 评分框架（如何选股）</h2>
+
+  <!-- 综合信号 -->
+  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+    <div style="text-align:center;min-width:120px;">
+      <div style="font-size:.85em;color:var(--text-secondary);margin-bottom:6px;">信号等级</div>
+      <div style="font-size:4em;font-weight:900;color:{sig_color};line-height:1;">{sig}</div>
+    </div>
+    <div style="flex:1;min-width:200px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;">
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">入场分</div>
+          <div style="font-size:2em;font-weight:700;color:#f0f6fc;">{scored['entry_score']}</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">质量分</div>
+          <div style="font-size:1.5em;font-weight:700;color:#f0f6fc;">{scored['quality_score'] or '—'}</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">估值分</div>
+          <div style="font-size:1.5em;font-weight:700;color:#f0f6fc;">{scored['valuation_score']}</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">趋势分</div>
+          <div style="font-size:1.5em;font-weight:700;color:#f0f6fc;">{scored['trend_score']}</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">趋势方向</div>
+          <div style="font-size:1.1em;font-weight:700;color:var(--blue);">{clock_label}</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:.8em;color:var(--text-secondary);">分红类型</div>
+          <div style="font-size:1.1em;font-weight:700;color:var(--purple);">{scored.get('dividend_type', '—')}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:.85em;color:var(--text-secondary);">
+        距60日线 <span style="color:{'var(--green)' if dist_60 and abs(dist_60) < 0.03 else 'var(--yellow)' if dist_60 and abs(dist_60) < 0.10 else 'var(--red)'};font-weight:600;">{dist_60_str}</span>
+        · 52周回撤 <span style="color:{'var(--green)' if dd and dd > -0.10 else 'var(--yellow)' if dd and dd > -0.25 else 'var(--red)'};font-weight:600;">{dd_str}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 评分基准参考 -->
+  <div class="info-card" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;" onclick="document.getElementById('ref-table').style.display=document.getElementById('ref-table').style.display==='none'?'block':'none'">
+      <span style="font-size:1.1em;">📊</span><strong style="color:#f0f6fc;">评分基准参考（点击展开/收起）</strong>
+      <span style="font-size:.8em;color:var(--text-secondary);">— 各分数段含义 & 关键因子及格线</span>
+    </div>
+    <div id="ref-table">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">
+        <!-- 信号等级 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th colspan="2" style="text-align:center;">信号等级</th></tr></thead>
+            <tbody>
+              <tr><td style="color:var(--green);font-weight:700;">A ≥ 78</td><td>强烈买入 — 质量/估值/趋势三重共振</td></tr>
+              <tr><td style="color:var(--blue);font-weight:700;">B ≥ 64</td><td>偏多 — 可分批建仓，等待趋势确认</td></tr>
+              <tr><td style="color:var(--yellow);font-weight:700;">C ≥ 50</td><td>中性 — 有亮点但存在明显短板</td></tr>
+              <tr><td style="color:var(--red);font-weight:700;">D &lt; 50</td><td>回避 — 估值/趋势/质量至少一项严重恶化</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 子分数档位 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th colspan="2" style="text-align:center;">质量/估值/趋势 子分档位</th></tr></thead>
+            <tbody>
+              <tr><td style="color:var(--green);font-weight:700;">≥ 75</td><td>优秀 — 因子全面占优，显著加分</td></tr>
+              <tr><td style="color:var(--blue);font-weight:700;">60–74</td><td>良好 — 多数因子达标，少数偏弱</td></tr>
+              <tr><td style="color:var(--yellow);font-weight:700;">45–59</td><td>及格线附近 — 基础分 50 + 少量加减分</td></tr>
+              <tr><td style="color:var(--red);font-weight:700;">&lt; 45</td><td>偏弱 — 触发惩罚项，需关注短板</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 质量因子及格线 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th>质量因子</th><th style="text-align:center;">优秀</th><th style="text-align:center;">及格</th><th style="text-align:center;">警戒</th></tr></thead>
+            <tbody>
+              <tr><td>营收增速</td><td class="val-up">≥ 8%</td><td>≥ 3%</td><td class="val-down">≤ -5%</td></tr>
+              <tr><td>利润增速</td><td class="val-up">≥ 10%</td><td>≥ 3%</td><td class="val-down">≤ -8%</td></tr>
+              <tr><td>毛利率</td><td class="val-up">≥ 45%</td><td>≥ 30%</td><td class="val-down">≤ 15%</td></tr>
+              <tr><td>净利率</td><td class="val-up">≥ 18%</td><td>≥ 10%</td><td class="val-down">≤ 3%</td></tr>
+              <tr><td>ROE</td><td class="val-up">≥ 15%</td><td>≥ 10%</td><td class="val-down">≤ 5%</td></tr>
+              <tr><td>D/E</td><td class="val-up">≤ 60</td><td>≤ 120</td><td class="val-down">≥ 220</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 估值因子及格线 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th>估值因子</th><th style="text-align:center;">便宜</th><th style="text-align:center;">合理</th><th style="text-align:center;">偏贵</th></tr></thead>
+            <tbody>
+              <tr><td>Trailing PE</td><td class="val-up">≤ 18</td><td>≤ 28</td><td class="val-down">≥ 45</td></tr>
+              <tr><td>Forward PE</td><td class="val-up">≤ 17</td><td>≤ 24</td><td class="val-down">≥ 35</td></tr>
+              <tr><td>P/S</td><td class="val-up">≤ 3</td><td>≤ 6</td><td class="val-down">≥ 12</td></tr>
+              <tr><td>EV/EBITDA</td><td class="val-up">≤ 12</td><td>≤ 18</td><td class="val-down">≥ 30</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 时钟模型 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th colspan="2" style="text-align:center;">趋势时钟模型</th></tr></thead>
+            <tbody>
+              <tr><td style="color:var(--green);font-weight:700;">🕐 1点钟</td><td>强势多头 · SMA20&gt;SMA60 且价格站上 SMA20</td></tr>
+              <tr><td style="color:var(--green);font-weight:700;">🕑 2点钟</td><td>最佳买入 · 均线完美多头排列 + 价格确认</td></tr>
+              <tr><td style="color:var(--yellow);font-weight:700;">🕒 3点钟</td><td>犹豫观望 · 均线缠绕，方向不明</td></tr>
+              <tr><td style="color:var(--red);font-weight:700;">🕓 4–6点</td><td>悲观下跌 · 均线空头排列，只做右侧确认</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 入场分公式 -->
+        <div>
+          <table style="font-size:.85em;">
+            <thead><tr><th colspan="2" style="text-align:center;">入场分权重</th></tr></thead>
+            <tbody>
+              <tr><td>估值分 × 35%</td><td style="color:var(--text-secondary);">便宜才是硬道理</td></tr>
+              <tr><td>趋势分 × 35%</td><td style="color:var(--text-secondary);">只做2点钟方向</td></tr>
+              <tr><td>质量分 × 30%</td><td style="color:var(--text-secondary);">好公司 + 好价格</td></tr>
+              <tr><td colspan="2" style="font-size:.8em;color:var(--text-secondary);">+ 位置修正（距60日线 ±3% 加分）</td></tr>
+              <tr><td colspan="2" style="font-size:.8em;color:var(--text-secondary);">− 质量偏弱/估值偏贵/财报临近 惩罚</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 红牌检查 -->
+  <div style="margin-bottom:20px;">
+    <h3 style="color:#f0f6fc;margin-bottom:8px;">红牌检查（一票否决）</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      {"".join(f'<span class="tag tag-bear">{red_flag_labels.get(f, f)}</span>' for f in red_flags_list) if red_flags_list else '<span class="tag tag-bull">无红牌 ✓</span>'}
+    </div>
+  </div>
+
+  <!-- 评分拆解 -->
+  <div class="grid-2">
+    <!-- 质量分拆解 -->
+    <div>
+      <h3 style="color:#f0f6fc;margin-bottom:8px;">质量分拆解（合计 {q_total}）</h3>
+      <div class="data-table-wrapper">
+        <table>
+          <thead><tr><th>因子</th><th>实际值</th><th>得分</th><th>规则说明</th></tr></thead>
+          <tbody>{quality_rows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 估值分拆解 -->
+    <div>
+      <h3 style="color:#f0f6fc;margin-bottom:8px;">估值分拆解（合计 {v_total}）</h3>
+      <div class="data-table-wrapper">
+        <table>
+          <thead><tr><th>因子</th><th>实际值</th><th>得分</th><th>规则说明</th></tr></thead>
+          <tbody>{valuation_rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px;">
+    <!-- 趋势分拆解 -->
+    <div>
+      <h3 style="color:#f0f6fc;margin-bottom:8px;">趋势分拆解（合计 {t_total}）</h3>
+      <div class="data-table-wrapper">
+        <table>
+          <thead><tr><th>因子</th><th>实际值</th><th>得分</th><th>规则说明</th></tr></thead>
+          <tbody>{trend_rows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 修正项 -->
+    <div>
+      <h3 style="color:#f0f6fc;margin-bottom:8px;">入场修正项</h3>
+      <div class="data-table-wrapper">
+        <table>
+          <thead><tr><th>因子</th><th>实际值</th><th>得分</th><th>规则说明</th></tr></thead>
+          <tbody>{adjust_rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 入场分公式 -->
+  <div class="info-card" style="margin-top:20px;font-family:monospace;font-size:.9em;color:var(--text-secondary);">
+    <strong style="color:var(--blue);">入场分公式：</strong>{formula}
+  </div>
+</section>"""
 
 
 # ══════════════════════════════════════════════════
@@ -707,8 +1026,10 @@ def main():
         print(f"[错误] 未获取到 {ticker} 的财务数据，请确认代码正确", file=sys.stderr)
         return 1
 
+    print(f"[StockScope] 正在运行评分管线...", flush=True)
+    scored = run_stockscope_scoring(ticker)
     print(f"[StockScope] 正在生成 HTML 报告...")
-    html = render(data)
+    html = render(data, scored)
 
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
