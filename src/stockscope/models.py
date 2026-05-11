@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 class PriceSnapshot:
     symbol: str
     closes: list[float] = field(default_factory=list)
+    volumes: list[float] = field(default_factory=list)
     current_price: float | None = None
     sma20: float | None = None
     sma60: float | None = None
@@ -16,6 +17,8 @@ class PriceSnapshot:
     return_6m: float | None = None
     return_1y: float | None = None
     last_date: str | None = None  # 最后交易日 "2026-05-01"
+    vwap_60: float | None = None  # 60日成交量加权均价
+    trend_slope: float | None = None  # 60日价格趋势斜率（线性回归）
 
 
 @dataclass
@@ -34,6 +37,9 @@ class Fundamentals:
     earnings_growth: float | None = None
     gross_margins: float | None = None
     profit_margins: float | None = None
+    operating_margins: float | None = None  # EBIT 利润率
+    total_revenue: float | None = None  # 总收入
+    business_summary: str = ""  # Yahoo 业务概述
     free_cashflow: float | None = None
     operating_cashflow: float | None = None
     debt_to_equity: float | None = None
@@ -69,6 +75,11 @@ class ScoredTicker:
     profit_margins: float | None
     debt_to_equity: float | None
     return_on_equity: float | None
+    operating_margins: float | None = None
+    total_revenue: float | None = None
+    trend_direction: str = "-"  # strong_uptrend / confirmed_uptrend / mixed / downtrend
+    red_flags: str = ""  # 红牌标签：negative_ocf, story_driven, small_revenue, negative_fcf
+    description: str = ""  # 中文一句话公司介绍
     group: str | None = None
     breakdown: ScoreBreakdown | None = None
     data_date: str | None = None
@@ -104,9 +115,11 @@ class QualityConfig:
     earnings_growth: FactorThresholds
     gross_margins: FactorThresholds
     profit_margins: FactorThresholds
+    operating_margins: FactorThresholds
     return_on_equity: FactorThresholds
     debt_to_equity: FactorThresholds
     cashflow_weight: int
+    revenue_min: float = 100_000_000  # 收入硬门槛（1亿美元）
 
 
 @dataclass
@@ -141,6 +154,8 @@ class TrendConfig:
     rs_strong_bonus: int
     rs_weak_threshold: float
     rs_weak_penalty: int
+    direction_uptrend_bonus: int = 10  # 2点钟方向加分
+    direction_downtrend_penalty: int = 15  # 4-6点钟方向扣分
 
 
 @dataclass
@@ -205,9 +220,11 @@ class ScoringConfig:
                 earnings_growth=FactorThresholds(good=0.10, ok=0.03, bad=-0.08, weight=12),
                 gross_margins=FactorThresholds(good=0.45, ok=0.30, bad=0.15, weight=8),
                 profit_margins=FactorThresholds(good=0.18, ok=0.10, bad=0.03, weight=10),
+                operating_margins=FactorThresholds(good=0.20, ok=0.10, bad=0.0, weight=10),
                 return_on_equity=FactorThresholds(good=0.15, ok=0.10, bad=0.05, weight=10),
                 debt_to_equity=FactorThresholds(good=60.0, ok=120.0, bad=220.0, weight=10),
                 cashflow_weight=8,
+                revenue_min=100_000_000,
             ),
             stock_valuation=StockValuationConfig(
                 base=50,
@@ -236,6 +253,8 @@ class ScoringConfig:
                 rs_strong_bonus=10,
                 rs_weak_threshold=-0.05,
                 rs_weak_penalty=8,
+                direction_uptrend_bonus=10,
+                direction_downtrend_penalty=15,
             ),
             stock_entry=StockEntryConfig(
                 valuation_weight=0.35,

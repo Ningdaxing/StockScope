@@ -159,6 +159,8 @@ def write_dashboard(
       margin: 8px 0 4px; color: var(--accent); font-size: 0.85rem;
     }}
     .bd-section {{ margin-bottom: 8px; }}
+    .bd-detail-line {{ display: flex; gap: 8px; margin-bottom: 4px; font-size: 0.82rem; line-height: 1.4; }}
+    .bd-detail-label {{ color: var(--accent); font-weight: bold; min-width: 56px; flex-shrink: 0; }}
     .bd-formula {{
       display: block; background: #21262d; padding: 6px 10px;
       border-radius: 4px; white-space: pre-wrap; font-size: 0.8rem;
@@ -174,6 +176,7 @@ def write_dashboard(
     .metric-warn {{ color: var(--warn); font-weight: bold; }}
     .note-good {{ color: var(--good); font-weight: bold; }}
     .note-warn {{ color: var(--warn); font-weight: bold; }}
+    .note-danger {{ color: var(--bad); font-weight: bold; }}
     .overview-stats {{ display: flex; gap: 12px; flex-wrap: wrap; }}
     .stat-item {{
       background: var(--panel); border: 1px solid var(--line);
@@ -209,7 +212,8 @@ def write_dashboard(
     .buy-card-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
     .buy-symbol {{ font-size: 1.05rem; }}
     .buy-entry {{ margin-left: auto; font-weight: bold; font-size: 1.1rem; color: var(--accent); }}
-    .buy-card-name {{ font-size: 0.9rem; color: var(--muted); margin-bottom: 8px; }}
+    .buy-card-name {{ font-size: 0.9rem; color: var(--muted); margin-bottom: 2px; }}
+    .buy-card-desc {{ font-size: 0.78rem; color: var(--muted); opacity: 0.75; margin-bottom: 8px; line-height: 1.35; }}
     .buy-card-scores {{ display: flex; gap: 12px; font-size: 0.85rem; margin-bottom: 6px; }}
     .buy-card-meta {{ display: flex; gap: 12px; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }}
     .buy-card-reason {{ font-size: 0.85rem; color: var(--good); margin-bottom: 2px; }}
@@ -346,10 +350,15 @@ def write_dashboard(
 def _render_overview(items: list[ScoredTicker]) -> str:
     """渲染买入总览面板：选出最值得买入的标的，分强烈推荐 / 可关注两档。"""
     # 分类筛选
+    red_card_items: list[ScoredTicker] = []  # 红牌标的
     strong_buy: list[ScoredTicker] = []  # A级 + 无追高/破位风险
     watch: list[ScoredTicker] = []       # A级但有风险，或B级高质量的
 
     for item in items:
+        # 红牌标的独立展示
+        if item.red_flags and ("negative_ocf" in item.red_flags or "story_driven" in item.red_flags):
+            red_card_items.append(item)
+            continue
         if item.signal == "A":
             note = item.note or ""
             if "extended_above" in note or "below_60d" in note:
@@ -379,6 +388,10 @@ def _render_overview(items: list[ScoredTicker]) -> str:
         dist = _fmt_pct(item.distance_to_sma60_pct)
         dd = _fmt_pct(item.drawdown_from_high_pct)
         reason = _buy_reason(item)
+        trend_dir = _translate_trend_direction(item.trend_direction)
+        red_flag_html = ""
+        if item.red_flags:
+            red_flag_html = f'<div class="buy-card-note note-danger">{escape(_translate_note(item.red_flags))}</div>'
         return f"""<div class="buy-card">
           <div class="buy-card-header">
             <span class="mono buy-symbol">{escape(item.symbol)}</span>
@@ -386,6 +399,7 @@ def _render_overview(items: list[ScoredTicker]) -> str:
             <span class="buy-entry">{item.entry_score}分</span>
           </div>
           <div class="buy-card-name">{escape(item.short_name)}</div>
+          {_render_desc_line(item)}
           <div class="buy-card-scores">
             <span>估值 <b class="{_valuation_class(item.valuation_score)}">{item.valuation_score}</b></span>
             <span>趋势 <b class="{_score_class(item.trend_score, excellent=75, weak=45)}">{item.trend_score}</b></span>
@@ -393,16 +407,27 @@ def _render_overview(items: list[ScoredTicker]) -> str:
           </div>
           <div class="buy-card-meta">
             <span>现价 {price}</span>
+            <span>方向 <b class="{_trend_dir_class(item.trend_direction)}">{escape(trend_dir)}</b></span>
             <span>60日线 <span class="{_dist_class(item.distance_to_sma60_pct)}">{dist}</span></span>
             <span>回撤 <span class="{_dd_class(item.drawdown_from_high_pct)}">{dd}</span></span>
             <span>{_div_badge(item)}</span>
           </div>
           <div class="buy-card-reason">{escape(reason)}</div>
           <div class="buy-card-note {_note_class(item.note)}">{escape(note)}</div>
+          {red_flag_html}
         </div>"""
 
     strong_cards = "\n".join(_render_buy_card(item) for item in strong_buy)
     watch_cards = "\n".join(_render_buy_card(item) for item in watch)
+    red_cards = "\n".join(_render_buy_card(item) for item in red_card_items)
+
+    red_card_section = ""
+    if red_card_items:
+        red_card_section = f"""
+      <div class="panel" style="border-color:var(--bad);">
+        <h2>红牌警告 ({len(red_card_items)}) <span style="font-size:14px;color:var(--bad);font-weight:normal;">— 经营现金流为负或故事驱动型，坚决不碰</span></h2>
+        <div class="buy-grid">{red_cards}</div>
+      </div>"""
 
     return f"""
     <div class="stack">
@@ -427,6 +452,7 @@ def _render_overview(items: list[ScoredTicker]) -> str:
         <h2>可关注 ({len(watch)}) <span style="font-size:14px;color:var(--muted);font-weight:normal;">— A级有风险提示 或 B级高质量</span></h2>
         <div class="buy-grid">{watch_cards if watch_cards else '<p class="muted">暂无符合条件的标的</p>'}</div>
       </div>
+      {red_card_section}
     </div>"""
 
 
@@ -452,6 +478,10 @@ def _buy_reason(item: ScoredTicker) -> str:
         reasons.append("趋势稳健")
     if abs(dist) <= 0.03:
         reasons.append("贴近60日线，买点舒适")
+    if item.trend_direction == "confirmed_uptrend":
+        reasons.append("2点钟方向，趋势确认向上")
+    elif item.trend_direction == "strong_uptrend":
+        reasons.append("1点钟方向，强势多头")
     if not reasons:
         reasons.append("综合评分优秀")
     return "，".join(reasons)
@@ -465,18 +495,20 @@ def print_terminal_summary(items: list[ScoredTicker], *, limit: int = 12) -> str
     - 让你不打开文件也能先看买点信号
     """
     header = (
-        f"{'代码':<8} {'名称':<16} {'类型':<6} {'信号':<4} {'入场分':>6} "
-        f"{'估值分':>6} {'趋势分':>6} {'质量分':>6} {'分红':<8} {'说明'}"
+        f"{'代码':<8} {'名称':<14} {'类型':<6} {'信号':<4} {'入场分':>6} "
+        f"{'估值分':>6} {'趋势分':>6} {'质量分':>6} {'趋势方向':<12} {'分红':<8} {'红牌':<12} {'说明'}"
     )
     lines = [header, "-" * len(header)]
     for item in items[:limit]:
         quality = "-" if item.quality_score is None else str(item.quality_score)
-        short_name = item.short_name[:16]
+        short_name = item.short_name[:14]
         div_yield = _fmt_pct(item.dividend_yield)
         div_info = f"{item.dividend_type}({div_yield})" if item.dividend_yield is not None else "-"
+        trend_dir = _translate_trend_direction(item.trend_direction)
+        red_flag_display = _translate_note(item.red_flags) if item.red_flags else "-"
         lines.append(
-            f"{item.symbol:<8} {short_name:<16} {item.asset_type:<6} {item.signal:<4} {item.entry_score:>6} "
-            f"{item.valuation_score:>6} {item.trend_score:>6} {quality:>6} {div_info:<8} {_translate_note(item.note)}"
+            f"{item.symbol:<8} {short_name:<14} {item.asset_type:<6} {item.signal:<4} {item.entry_score:>6} "
+            f"{item.valuation_score:>6} {item.trend_score:>6} {quality:>6} {trend_dir:<12} {div_info:<8} {red_flag_display:<12} {_translate_note(item.note)}"
         )
     return "\n".join(lines)
 
@@ -504,6 +536,65 @@ def _note_class(note: str) -> str:
     if any(tag in note for tag in ("weak_quality", "rich_valuation", "earnings_soon", "extended_above", "below_60d")):
         return "note-warn"
     return ""
+
+
+def _trend_dir_class(direction: str) -> str:
+    """趋势方向高亮：2点钟绿色，4-6点钟红色。"""
+    if direction in ("confirmed_uptrend", "strong_uptrend"):
+        return "metric-excellent"
+    if direction == "downtrend":
+        return "metric-weak"
+    return ""
+
+
+def _parse_description(desc: str) -> tuple[str, str, str]:
+    """解析三段式描述：公司介绍 | 商业模式 | 盈利模式。"""
+    parts = desc.split("|", 2)
+    intro = parts[0].strip() if len(parts) > 0 else ""
+    model = parts[1].strip() if len(parts) > 1 else ""
+    profit = parts[2].strip() if len(parts) > 2 else ""
+    return intro, model, profit
+
+
+def _render_desc_line(item: ScoredTicker) -> str:
+    """渲染公司简介行（买入卡片只展示第一段公司介绍）。"""
+    if item.description:
+        intro, _, _ = _parse_description(item.description)
+        return f'<div class="buy-card-desc">{escape(intro)}</div>'
+    return ""
+
+
+def _render_business_tooltip(item: ScoredTicker) -> str:
+    """渲染公司详情 tooltip（三段都有）。"""
+    if not item.description:
+        return escape(item.short_name)
+    intro, model, profit = _parse_description(item.description)
+    parts = [f"【公司介绍】{intro}"]
+    if model:
+        parts.append(f"【商业模式】{model}")
+    if profit:
+        parts.append(f"【盈利模式】{profit}")
+    return escape("\n\n".join(parts))
+
+
+def _red_flag_class(red_flags: str) -> str:
+    """红牌标签高亮。"""
+    if "negative_ocf" in red_flags or "story_driven" in red_flags:
+        return "note-danger"
+    if red_flags:
+        return "note-warn"
+    return ""
+
+
+def _translate_trend_direction(direction: str) -> str:
+    """把趋势方向翻译成中文。"""
+    mapping = {
+        "strong_uptrend": "1点钟(强势)",
+        "confirmed_uptrend": "2点钟(最佳)",
+        "mixed": "3点钟(犹豫)",
+        "downtrend": "4-6点(下跌)",
+    }
+    return mapping.get(direction, direction)
 
 
 def _dist_class(dist: float | None) -> str:
@@ -544,6 +635,8 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
     price = _fmt_number(item.current_price)
     dist = _fmt_pct(item.distance_to_sma60_pct)
     drawdown = _fmt_pct(item.drawdown_from_high_pct)
+    trend_dir = _translate_trend_direction(item.trend_direction)
+    red_flag_display = _translate_note(item.red_flags)
     has_breakdown = item.breakdown is not None
     toggle_html = ""
     breakdown_html = ""
@@ -554,18 +647,19 @@ def _render_row(item: ScoredTicker, row_index: int) -> str:
     main_row = (
         f'<tr data-signal="{escape(item.signal)}" data-sort-entry="{item.entry_score}" data-sort-valuation="{item.valuation_score}" data-sort-trend="{item.trend_score}" data-sort-quality="{quality}">'
         f"<td class='mono'>{escape(item.symbol)}</td>"
-        f"<td>{escape(item.short_name)}</td>"
+        f"<td title=\"{_render_business_tooltip(item)}\">{escape(item.short_name)}</td>"
         f"<td>{escape(item.asset_type)}</td>"
         f"<td class='signal-{escape(item.signal)}'>{escape(item.signal)}</td>"
         f"<td class='{_score_class(item.entry_score)}'>{item.entry_score}</td>"
         f"<td class='{_valuation_class(item.valuation_score)}'>{item.valuation_score}</td>"
         f"<td class='{_score_class(item.trend_score, excellent=75, weak=45)}'>{item.trend_score}</td>"
         f"<td class='{_score_class(item.quality_score, excellent=75, weak=45)}'>{quality}</td>"
+        f"<td class='{_trend_dir_class(item.trend_direction)}'>{escape(trend_dir)}</td>"
         f"<td>{_div_badge(item)}</td>"
         f"<td>{price}</td>"
         f"<td class='{_dist_class(item.distance_to_sma60_pct)}'>{dist}</td>"
         f"<td class='{_dd_class(item.drawdown_from_high_pct)}'>{drawdown}</td>"
-        f"<td class='{_note_class(item.note)}'>{escape(note_display)} {toggle_html}</td>"
+        f"<td class='{_note_class(item.note)} {_red_flag_class(item.red_flags)}'>{escape(note_display)} {escape(red_flag_display)} {toggle_html}</td>"
         "</tr>"
     )
     return main_row + breakdown_html
@@ -577,6 +671,21 @@ def _render_breakdown_row(item: ScoredTicker, row_index: int) -> str:
     if bd is None:
         return ""
     sections: list[str] = []
+
+    # 公司详情
+    if item.description:
+        intro, model, profit = _parse_description(item.description)
+        detail_parts = [f'<div class="bd-detail-line"><span class="bd-detail-label">公司介绍</span><span>{escape(intro)}</span></div>']
+        if model:
+            detail_parts.append(f'<div class="bd-detail-line"><span class="bd-detail-label">商业模式</span><span>{escape(model)}</span></div>')
+        if profit:
+            detail_parts.append(f'<div class="bd-detail-line"><span class="bd-detail-label">盈利模式</span><span>{escape(profit)}</span></div>')
+        sections.append(
+            "<div class='bd-section'>"
+            f"<h4>公司详情</h4>"
+            + "".join(detail_parts) +
+            "</div>"
+        )
 
     # 入场公式
     if bd.entry_formula:
@@ -615,7 +724,7 @@ def _render_breakdown_row(item: ScoredTicker, row_index: int) -> str:
     inner = "\n".join(sections)
     return (
         f'<tr class="breakdown-row" id="bd-{row_index}" style="display:none">'
-        f'<td colspan="13"><div class="breakdown-panel">{inner}</div></td>'
+        f'<td colspan="15"><div class="breakdown-panel">{inner}</div></td>'
         f"</tr>"
     )
 
@@ -695,8 +804,44 @@ def _render_explanation(config=None) -> str:
           <td>质量分</td>
           <td>只对个股有效，ETF 通常为空</td>
           <td>60分以上及格，75分以上较好，45分以下偏弱</td>
-          <td>主要看营收增长、利润增长、毛利率、净利率、ROE、负债和现金流。</td>
+          <td>主要看营收增长、利润增长、毛利率、净利率、EBIT 利润率、ROE、负债、现金流和收入规模。</td>
         </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>趋势方向（时钟模型）</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>方向</th>
+          <th>含义</th>
+          <th>操作建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="metric-excellent">1点钟(强势)</td><td>SMA20 > SMA60 > SMA120，价格站上 SMA20，趋势斜率向上</td><td>市场极度看好，可持有但追高需谨慎</td></tr>
+        <tr><td class="metric-excellent">2点钟(最佳)</td><td>均线多头排列，价格站上 SMA20，趋势确认向上</td><td>最佳买入区域，基本面与股价相互验证</td></tr>
+        <tr><td>3点钟(犹豫)</td><td>均线缠绕，方向不明</td><td>观望为主，等待趋势明朗</td></tr>
+        <tr><td class="metric-weak">4-6点(下跌)</td><td>SMA20 < SMA60 < SMA120，价格在 SMA20 之下</td><td>坚决不抄底，等趋势反转再考虑</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>红牌机制</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>红牌标签</th>
+          <th>触发条件</th>
+          <th>后果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="note-danger">经营现金流为负</td><td>Operating Cash Flow ≤ 0</td><td>强制 D 级，入场分上限 30</td></tr>
+        <tr><td class="note-danger">故事驱动型</td><td>EBIT 利润率 < 0 且 经营现金流 ≤ 0</td><td>强制 D 级，入场分上限 30</td></tr>
+        <tr><td class="note-warn">自由现金流为负</td><td>FCF < 0 但经营现金流 > 0</td><td>警告标签，不影响信号等级</td></tr>
+        <tr><td class="note-warn">收入规模过小</td><td>总收入 < 1亿美元</td><td>警告标签，质量分扣分</td></tr>
       </tbody>
     </table>
   </div>
@@ -754,7 +899,7 @@ def _render_group_panel(group_id: str, rows_html: str, items: list[ScoredTicker]
     summary = f"A({signal_counts['A']}) B({signal_counts['B']}) C({signal_counts['C']}) D({signal_counts['D']})"
 
     if not items:
-        rows_html = '<tr><td colspan="13" class="muted" style="text-align:center;">该分组暂无数据</td></tr>'
+        rows_html = '<tr><td colspan="15" class="muted" style="text-align:center;">该分组暂无数据</td></tr>'
 
     return f"""<div class="group-panel {active_class}" data-group="{group_id}">
       <div class="panel">
@@ -779,6 +924,7 @@ def _render_group_panel(group_id: str, rows_html: str, items: list[ScoredTicker]
               <th>估值分</th>
               <th>趋势分</th>
               <th>质量分</th>
+              <th>趋势方向</th>
               <th>分红</th>
               <th>现价</th>
               <th>距60日线</th>
@@ -807,6 +953,10 @@ def _translate_note(note: str) -> str:
         "rich_valuation": "估值偏贵",
         "earnings_soon": "财报临近",
         "balanced": "整体均衡",
+        "negative_ocf": "红牌:经营现金流为负",
+        "story_driven": "红牌:故事驱动型",
+        "negative_fcf": "警告:自由现金流为负",
+        "small_revenue": "警告:收入规模过小",
     }
     parts = [mapping.get(part, part) for part in note.split(",") if part]
     return "，".join(parts) if parts else note

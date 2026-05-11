@@ -38,6 +38,12 @@ ok = 0.10
 bad = 0.03
 weight = 10
 
+[quality.operating_margins]
+good = 0.20
+ok = 0.10
+bad = 0.0
+weight = 10
+
 [quality.return_on_equity]
 good = 0.15
 ok = 0.10
@@ -52,6 +58,9 @@ weight = 10
 
 [quality.cashflow]
 weight = 8
+
+[quality.revenue]
+min = 100000000
 
 # ---------- 估值分（个股） ----------
 [stock_valuation]
@@ -121,6 +130,10 @@ strong_threshold = 0.05
 strong_bonus = 10
 weak_threshold = -0.05
 weak_penalty = 8
+
+[trend.direction]
+uptrend_bonus = 10
+downtrend_penalty = 15
 
 # ---------- 入场分（个股） ----------
 [stock_entry]

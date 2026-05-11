@@ -70,6 +70,15 @@ def load_name_overrides(path: str | Path) -> dict[str, str]:
     return normalized
 
 
+def load_descriptions(path: str | Path) -> dict[str, str]:
+    """读取 ticker → 中文介绍映射。"""
+    raw = load_raw_config(path)
+    result: dict[str, str] = {}
+    for symbol, desc in raw.get("descriptions", {}).items():
+        result[str(symbol).strip().upper()] = str(desc).strip()
+    return result
+
+
 def load_groups(path: str | Path) -> dict[str, list[str]]:
     """读取分组配置，返回 group_name -> symbols 的映射。
 
@@ -170,9 +179,11 @@ def load_scoring_config(path: str | Path = "config/scoring.toml") -> ScoringConf
         earnings_growth=_merge_factor(defaults.quality.earnings_growth, q.get("earnings_growth")),
         gross_margins=_merge_factor(defaults.quality.gross_margins, q.get("gross_margins")),
         profit_margins=_merge_factor(defaults.quality.profit_margins, q.get("profit_margins")),
+        operating_margins=_merge_factor(defaults.quality.operating_margins, q.get("operating_margins")),
         return_on_equity=_merge_factor(defaults.quality.return_on_equity, q.get("return_on_equity")),
         debt_to_equity=_merge_factor(defaults.quality.debt_to_equity, q.get("debt_to_equity")),
         cashflow_weight=q.get("cashflow", {}).get("weight", defaults.quality.cashflow_weight),
+        revenue_min=q.get("revenue", {}).get("min", defaults.quality.revenue_min),
     )
 
     # 个股估值
@@ -198,6 +209,7 @@ def load_scoring_config(path: str | Path = "config/scoring.toml") -> ScoringConf
     t = raw.get("trend", {})
     dd = t.get("drawdown", {})
     rs = t.get("relative_strength", {})
+    di = t.get("direction", {})
     trend = TrendConfig(
         base=t.get("base", defaults.trend.base),
         sma20_bonus=t.get("sma20_bonus", defaults.trend.sma20_bonus),
@@ -212,6 +224,8 @@ def load_scoring_config(path: str | Path = "config/scoring.toml") -> ScoringConf
         rs_strong_bonus=rs.get("strong_bonus", defaults.trend.rs_strong_bonus),
         rs_weak_threshold=rs.get("weak_threshold", defaults.trend.rs_weak_threshold),
         rs_weak_penalty=rs.get("weak_penalty", defaults.trend.rs_weak_penalty),
+        direction_uptrend_bonus=di.get("uptrend_bonus", defaults.trend.direction_uptrend_bonus),
+        direction_downtrend_penalty=di.get("downtrend_penalty", defaults.trend.direction_downtrend_penalty),
     )
 
     # 个股入场

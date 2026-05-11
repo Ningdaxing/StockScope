@@ -61,6 +61,7 @@ def score_ticker(
     benchmark_price: PriceSnapshot | None = None,
     *,
     config: ScoringConfig | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> ScoredTicker:
     """对单个标的执行完整打分并组装最终输出。
 
@@ -73,6 +74,7 @@ def score_ticker(
 
     collector = BreakdownCollector()
     asset_type = normalize_asset_type(fundamentals.quote_type)
+    trend_direction = score_trend_direction(price)
     trend_score = score_trend(price, benchmark_price, config=config.trend, collector=collector)
 
     if asset_type == "ETF":
@@ -85,6 +87,7 @@ def score_ticker(
             config=config,
             collector=collector,
         )
+        red_flags = ""
         breakdown = ScoreBreakdown(
             quality_base=0,
             valuation_base=config.etf_valuation.base,
@@ -106,6 +109,18 @@ def score_ticker(
             config=config,
             collector=collector,
         )
+        # 红牌检查：一票否决
+        red_flags_list = check_red_flags(fundamentals, price)
+        if red_flags_list:
+            red_flags = ",".join(red_flags_list)
+            if "negative_ocf" in red_flags_list or "story_driven" in red_flags_list:
+                signal = "D"
+                entry_score = min(entry_score, 30)
+                if collector:
+                    collector.add(factor="红牌一票否决", value=red_flags, score=-20,
+                                  detail=f"触发红牌({red_flags}) → 强制D级，入场分上限30", category="adjustment")
+        else:
+            red_flags = ""
         breakdown = ScoreBreakdown(
             quality_base=config.quality.base,
             quality_items=collector.by_category("quality"),
@@ -140,12 +155,17 @@ def score_ticker(
         earnings_growth=fundamentals.earnings_growth,
         gross_margins=fundamentals.gross_margins,
         profit_margins=fundamentals.profit_margins,
+        operating_margins=fundamentals.operating_margins,
+        total_revenue=fundamentals.total_revenue,
         debt_to_equity=fundamentals.debt_to_equity,
         return_on_equity=fundamentals.return_on_equity,
+        trend_direction=trend_direction,
+        red_flags=red_flags,
         breakdown=breakdown,
         data_date=price.last_date,
         dividend_yield=fundamentals.dividend_yield,
         dividend_type=_dividend_type(fundamentals.dividend_yield),
+        description=(descriptions or {}).get(fundamentals.symbol, ""),
     )
 
 
@@ -172,6 +192,7 @@ def score_quality(f: Fundamentals, *, config: QualityConfig, collector: Breakdow
         ("盈利增长", f.earnings_growth, q.earnings_growth),
         ("毛利率", f.gross_margins, q.gross_margins),
         ("净利率", f.profit_margins, q.profit_margins),
+        ("EBIT 利润率", f.operating_margins, q.operating_margins),
         ("ROE", f.return_on_equity, q.return_on_equity),
     ]
     for label, value, thresh in pct_factors:
@@ -187,7 +208,7 @@ def score_quality(f: Fundamentals, *, config: QualityConfig, collector: Breakdow
     if collector:
         collector.add(factor="负债权益比", value=_fmt_v(de), score=de_s, detail=de_detail, category="quality")
 
-    # 现金流特殊处理
+    # 现金流
     cf_score = cashflow_score(f.free_cashflow, f.operating_cashflow, weight=q.cashflow_weight)
     score += cf_score
     if collector:
@@ -200,6 +221,15 @@ def score_quality(f: Fundamentals, *, config: QualityConfig, collector: Breakdow
         else:
             cf_detail = f"FCF≤0 且 OCF≤0 → { -q.cashflow_weight}"
         collector.add(factor="现金流", value=f"FCF={_fmt_v(f.free_cashflow)} OCF={_fmt_v(f.operating_cashflow)}", score=cf_score, detail=cf_detail, category="quality")
+
+    # 收入规模
+    rev = f.total_revenue
+    if rev is not None and rev < q.revenue_min:
+        rev_penalty = -8
+        score += rev_penalty
+        if collector:
+            collector.add(factor="收入规模", value=_fmt_v(rev), score=rev_penalty,
+                          detail=f"收入 {_fmt_v(rev)} < {_fmt_v(q.revenue_min)}（1亿美元门槛） → {rev_penalty}", category="quality")
 
     return clamp(score)
 
@@ -300,7 +330,104 @@ def score_trend(price: PriceSnapshot, benchmark_price: PriceSnapshot | None, *, 
                 collector.add(factor="相对弱势", value=f"{_fmt_v(rel_strength, is_pct=True)}{trade_date}", score=-t.rs_weak_penalty,
                               detail=f"相对强度(6m){trade_date} < {_fmt_v(t.rs_weak_threshold, is_pct=True)} → { -t.rs_weak_penalty}", category="trend")
 
+    # 趋势方向（时钟模型）
+    direction = score_trend_direction(price)
+    if direction == "confirmed_uptrend":
+        score += t.direction_uptrend_bonus
+        if collector:
+            collector.add(factor="趋势方向(2点钟)", value="均线多头排列+价格确认", score=t.direction_uptrend_bonus,
+                          detail=f"2点钟方向(最佳买入) → +{t.direction_uptrend_bonus}", category="trend")
+    elif direction == "strong_uptrend":
+        score += t.direction_uptrend_bonus
+        if collector:
+            collector.add(factor="趋势方向(1点钟)", value="强势多头+斜率向上", score=t.direction_uptrend_bonus,
+                          detail=f"1点钟方向(强势) → +{t.direction_uptrend_bonus}", category="trend")
+    elif direction == "downtrend":
+        score -= t.direction_downtrend_penalty
+        if collector:
+            collector.add(factor="趋势方向(4-6点钟)", value="均线空头排列", score=-t.direction_downtrend_penalty,
+                          detail=f"4-6点钟方向(悲观下跌) → { -t.direction_downtrend_penalty}", category="trend")
+
     return clamp(score)
+
+
+def score_trend_direction(price: PriceSnapshot) -> str:
+    """判断趋势方向（时钟模型）。
+
+    2点钟方向（最佳买入）：SMA20 > SMA60 > SMA120 且价格站上 SMA20，趋势确认向上
+    1点钟方向（强势）：SMA20 > SMA60 但未完全对齐，价格在 SMA20 之上
+    3点钟方向（犹豫）：均线缠绕，方向不明
+    4-6点钟方向（悲观下跌）：SMA20 < SMA60 < SMA120 且价格在 SMA20 之下
+
+    作用：
+    - 实现"只做 2 点钟方向"的交易纪律
+    - 趋势方向与主观判断冲突时必须服从图形
+    """
+    if not price.sma20 or not price.sma60 or not price.sma120 or not price.current_price:
+        return "mixed"
+    sma20, sma60, sma120 = price.sma20, price.sma60, price.sma120
+    cp = price.current_price
+    slope = price.trend_slope
+
+    # 完美多头排列：SMA20 > SMA60 > SMA120
+    bullish_alignment = sma20 > sma60 > sma120
+    # 完美空头排列：SMA20 < SMA60 < SMA120
+    bearish_alignment = sma20 < sma60 < sma120
+
+    # 价格跌破最长期均线 → 趋势已破坏
+    if cp < sma120:
+        return "downtrend"
+    if bearish_alignment and cp < sma20:
+        return "downtrend"
+    if bullish_alignment and cp > sma20 and (slope is None or slope > 0.05):
+        return "strong_uptrend"
+    if bullish_alignment and cp > sma20:
+        return "confirmed_uptrend"
+    if bullish_alignment:
+        return "confirmed_uptrend"
+    return "mixed"
+
+
+def check_red_flags(f: Fundamentals, price: PriceSnapshot) -> list[str]:
+    """检查一票否决的红牌信号。
+
+    红牌条件：
+    1. 经营现金流为负 → 企业无法靠主营业务产生现金
+    2. 故事驱动型：EBIT 利润率 < 0 + 经营现金流 ≤ 0 → 纯概念炒作
+    3. 自由现金流为负（经营现金流正的情况下）→ 警告级，不算红牌
+
+    作用：
+    - 实现"知可以战与不可以战者胜"的原则
+    - 红牌标的强制 D 级信号，避免为故事买单
+    """
+    flags: list[str] = []
+    ocf = f.operating_cashflow
+    fcf = f.free_cashflow
+    ebit = f.operating_margins
+    sector = f.sector or ""
+
+    # 金融行业豁免：银行/保险/资管的经营现金流因放贷扩张常为负，属正常经营行为
+    skip_ocf_red_flags = sector == "Financial Services"
+
+    # 经营现金流为负 → 红牌
+    if not skip_ocf_red_flags and ocf is not None and ocf <= 0:
+        flags.append("negative_ocf")
+
+    # 故事驱动型 → 红牌：EBIT 利润率 < 0 且 经营现金流 ≤ 0
+    if not skip_ocf_red_flags and ebit is not None and ebit < 0 and (ocf is None or ocf <= 0):
+        if "negative_ocf" not in flags:
+            flags.append("story_driven")
+
+    # 自由现金流为负（但经营现金流还可以）→ 警告
+    if fcf is not None and fcf < 0 and (ocf is not None and ocf > 0):
+        flags.append("negative_fcf")
+
+    # 收入过小
+    rev = f.total_revenue
+    if rev is not None and rev < 100_000_000:
+        flags.append("small_revenue")
+
+    return flags
 
 
 def score_stock_entry(
