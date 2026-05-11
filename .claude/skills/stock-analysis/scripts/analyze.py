@@ -227,79 +227,86 @@ def _get(df, col_name, col_idx):
 def fetch_data(ticker: str) -> dict:
     stock = yf.Ticker(ticker)
     info = stock.info
+    quote_type = (info.get("quoteType") or "").upper()
+    is_etf = quote_type in ("ETF", "MUTUALFUND")
 
     # 季度财报
-    qf = stock.quarterly_financials
     qf_data = []
-    if qf is not None and not qf.empty:
-        for col in qf.columns[:4]:
-            rev = _get(qf, "Total Revenue", col)
-            gp = _get(qf, "Gross Profit", col)
-            oi = _get(qf, "Operating Income", col)
-            ni = _get(qf, "Net Income", col)
-            eps = _get(qf, "Diluted EPS", col)
-            ebitda = _get(qf, "EBITDA", col)
-            qf_data.append({
-                "date": col.strftime("%Y-%m-%d") if hasattr(col, "strftime") else str(col),
-                "revenue": rev,
-                "gross_margin": (gp / rev * 100) if gp and rev else None,
-                "operating_income": oi,
-                "net_income": ni,
-                "eps": eps,
-                "ebitda": ebitda,
-            })
+    if not is_etf:
+        qf = stock.quarterly_financials
+        if qf is not None and not qf.empty:
+            for col in qf.columns[:4]:
+                rev = _get(qf, "Total Revenue", col)
+                gp = _get(qf, "Gross Profit", col)
+                oi = _get(qf, "Operating Income", col)
+                ni = _get(qf, "Net Income", col)
+                eps = _get(qf, "Diluted EPS", col)
+                ebitda = _get(qf, "EBITDA", col)
+                qf_data.append({
+                    "date": col.strftime("%Y-%m-%d") if hasattr(col, "strftime") else str(col),
+                    "revenue": rev,
+                    "gross_margin": (gp / rev * 100) if gp and rev else None,
+                    "operating_income": oi,
+                    "net_income": ni,
+                    "eps": eps,
+                    "ebitda": ebitda,
+                })
 
     # 年度收入
     annual_rev = []
-    fin = stock.financials
-    if fin is not None and not fin.empty and "Total Revenue" in fin.index:
-        for col in fin.columns[:5]:
-            v = fin.loc["Total Revenue", col]
-            if v and v > 0:
-                annual_rev.append({
-                    "year": str(col.year) if hasattr(col, "year") else str(col)[:4],
-                    "revenue": float(v),
-                })
+    if not is_etf:
+        fin = stock.financials
+        if fin is not None and not fin.empty and "Total Revenue" in fin.index:
+            for col in fin.columns[:5]:
+                v = fin.loc["Total Revenue", col]
+                if v and v > 0:
+                    annual_rev.append({
+                        "year": str(col.year) if hasattr(col, "year") else str(col)[:4],
+                        "revenue": float(v),
+                    })
 
     # EPS 历史
-    eh = stock.earnings_history
     eh_data = []
-    if eh is not None and not eh.empty:
-        for idx in eh.index[-4:]:
-            row = eh.loc[idx]
-            eh_data.append({
-                "quarter": str(idx),
-                "eps_actual": float((row.get("epsActual") or 0)),
-                "eps_estimate": float((row.get("epsEstimate") or 0)),
-                "surprise_pct": float((row.get("surprisePercent") or 0)) * 100,
-            })
+    if not is_etf:
+        eh = stock.earnings_history
+        if eh is not None and not eh.empty:
+            for idx in eh.index[-4:]:
+                row = eh.loc[idx]
+                eh_data.append({
+                    "quarter": str(idx),
+                    "eps_actual": float((row.get("epsActual") or 0)),
+                    "eps_estimate": float((row.get("epsEstimate") or 0)),
+                    "surprise_pct": float((row.get("surprisePercent") or 0)) * 100,
+                })
 
     # 资产负债表
     bs_data = {}
-    bs = stock.quarterly_balance_sheet
-    if bs is not None and not bs.empty:
-        c = bs.columns[0]
-        bs_data["cash"] = _get(bs, "Cash And Cash Equivalents", c)
-        bs_data["total_debt"] = _get(bs, "Total Debt", c)
-        ca = _get(bs, "Current Assets", c)
-        cl = _get(bs, "Current Liabilities", c)
-        bs_data["current_ratio"] = _get(bs, "Current Ratio", c) or ((ca / cl) if ca and cl else None)
-        bs_data["quick_ratio"] = _get(bs, "Quick Ratio", c)
-        bs_data["gw_intangibles"] = _get(bs, "Goodwill And Other Intangible Assets", c)
-        bs_data["total_assets"] = _get(bs, "Total Assets", c) or 1
-        bs_data["equity"] = _get(bs, "Stockholders Equity", c)
+    if not is_etf:
+        bs = stock.quarterly_balance_sheet
+        if bs is not None and not bs.empty:
+            c = bs.columns[0]
+            bs_data["cash"] = _get(bs, "Cash And Cash Equivalents", c)
+            bs_data["total_debt"] = _get(bs, "Total Debt", c)
+            ca = _get(bs, "Current Assets", c)
+            cl = _get(bs, "Current Liabilities", c)
+            bs_data["current_ratio"] = _get(bs, "Current Ratio", c) or ((ca / cl) if ca and cl else None)
+            bs_data["quick_ratio"] = _get(bs, "Quick Ratio", c)
+            bs_data["gw_intangibles"] = _get(bs, "Goodwill And Other Intangible Assets", c)
+            bs_data["total_assets"] = _get(bs, "Total Assets", c) or 1
+            bs_data["equity"] = _get(bs, "Stockholders Equity", c)
 
     # 现金流
     cf_data = {}
-    cf = stock.quarterly_cashflow
-    if cf is not None and not cf.empty:
-        c = cf.columns[0]
-        cf_data["fcf"] = _get(cf, "Free Cash Flow", c)
-        cf_data["ocf"] = _get(cf, "Operating Cash Flow", c)
-        cf_data["acquisitions"] = _get(cf, "Purchase Of Business", c)
-        cf_data["debt_issued"] = _get(cf, "Issuance Of Debt", c)
-        cf_data["buyback"] = _get(cf, "Repurchase Of Capital Stock", c)
-        cf_data["dividends_paid"] = _get(cf, "Cash Dividends Paid", c)
+    if not is_etf:
+        cf = stock.quarterly_cashflow
+        if cf is not None and not cf.empty:
+            c = cf.columns[0]
+            cf_data["fcf"] = _get(cf, "Free Cash Flow", c)
+            cf_data["ocf"] = _get(cf, "Operating Cash Flow", c)
+            cf_data["acquisitions"] = _get(cf, "Purchase Of Business", c)
+            cf_data["debt_issued"] = _get(cf, "Issuance Of Debt", c)
+            cf_data["buyback"] = _get(cf, "Repurchase Of Capital Stock", c)
+            cf_data["dividends_paid"] = _get(cf, "Cash Dividends Paid", c)
 
     # 机构持仓
     inst_holders = []
@@ -330,14 +337,31 @@ def fetch_data(ticker: str) -> dict:
     except Exception:
         pass
 
+    # ── ETF 特有数据 ──
+    etf_data = {}
+    if is_etf:
+        etf_data["category"] = info.get("category") or "—"
+        etf_data["fund_family"] = info.get("fundFamily") or "—"
+        etf_data["net_assets"] = info.get("netAssets") or info.get("totalAssets")
+        etf_data["expense_ratio"] = (info.get("netExpenseRatio") or 0) * 100 if info.get("netExpenseRatio") is not None else None
+        etf_data["inception_date"] = info.get("fundInceptionDate")
+        etf_data["nav_price"] = info.get("navPrice")
+        etf_data["ytd_return"] = (info.get("ytdReturn") or 0) * 100 if info.get("ytdReturn") is not None else None
+        etf_data["return_3m"] = (info.get("trailingThreeMonthReturns") or 0) * 100 if info.get("trailingThreeMonthReturns") is not None else None
+        etf_data["return_3y"] = (info.get("threeYearAverageReturn") or 0) * 100 if info.get("threeYearAverageReturn") is not None else None
+        etf_data["return_5y"] = (info.get("fiveYearAverageReturn") or 0) * 100 if info.get("fiveYearAverageReturn") is not None else None
+        etf_data["beta_3y"] = info.get("beta3Year")
+        etf_data["category"] = info.get("category") or "—"
+
     d = {
         "ticker": ticker,
+        "asset_type": "ETF" if is_etf else "STOCK",
         "name": info.get("longName") or info.get("shortName") or ticker,
         "summary": _translate_en_to_zh(info.get("longBusinessSummary") or ""),
-        "industry": _tr_industry(info.get("industry") or "—"),
-        "sector": _tr_sector(info.get("sector") or "—"),
-        "market_cap": info.get("marketCap"),
-        "current_price": info.get("currentPrice"),
+        "industry": etf_data.get("category") or _tr_industry(info.get("industry") or "—"),
+        "sector": etf_data.get("fund_family") or _tr_sector(info.get("sector") or "—"),
+        "market_cap": info.get("marketCap") or etf_data.get("net_assets"),
+        "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
         "target_mean": info.get("targetMeanPrice"),
         "target_high": info.get("targetHighPrice"),
         "target_low": info.get("targetLowPrice"),
@@ -346,12 +370,12 @@ def fetch_data(ticker: str) -> dict:
         "revenue_growth": (info.get("revenueGrowth") or 0) * 100,
         "earnings_growth": (info.get("earningsGrowth") or 0) * 100,
         "forward_pe": info.get("forwardPE"),
-        "trailing_pe": info.get("trailingPE"),
+        "trailing_pe": info.get("trailingPE") or info.get("epsTrailingTwelveMonths"),
         "peg_ratio": info.get("pegRatio"),
         "price_to_book": info.get("priceToBook"),
         "ev_revenue": info.get("enterpriseToRevenue"),
         "ev_ebitda": info.get("enterpriseToEbitda"),
-        "beta": info.get("beta"),
+        "beta": info.get("beta") or etf_data.get("beta_3y"),
         "total_revenue": info.get("totalRevenue"),
         "ebitda": info.get("ebitda"),
         "profit_margins": (info.get("profitMargins") or 0) * 100 if info.get("profitMargins") is not None else None,
@@ -378,6 +402,7 @@ def fetch_data(ticker: str) -> dict:
         "inst_holders": inst_holders,
         "analyst_recs": recs,
         "rec_total": rec_total,
+        "etf_data": etf_data,
     }
     return d
 
@@ -425,6 +450,7 @@ def run_stockscope_scoring(ticker: str) -> dict | None:
 def render(data: dict, scored: dict | None = None) -> str:
     d = data
     t = d["ticker"]
+    is_etf = d.get("asset_type") == "ETF"
     today = datetime.now().strftime("%Y-%m-%d")
 
     # ── 季度表格 ──
@@ -579,22 +605,8 @@ def render(data: dict, scored: dict | None = None) -> str:
 
 <!-- 2. 核心财务 -->
 <section>
-  <h2><span class="num">2</span> 核心财务数据</h2>
-  <h3>季度趋势（最近 4 季）</h3>
-  <div class="data-table-wrapper">
-    <table>
-      <thead><tr><th>季度</th><th>收入</th><th>毛利率</th><th>营业利润</th><th>净利润</th><th>稀释 EPS</th><th>EBITDA</th></tr></thead>
-      <tbody>{q_rows}</tbody>
-    </table>
-  </div>
-
-  <h3>EPS 超预期记录</h3>
-  <div class="data-table-wrapper">
-    <table>
-      <thead><tr><th>季度</th><th>EPS 实际</th><th>EPS 预期</th><th>超预期幅度</th></tr></thead>
-      <tbody>{eps_rows}</tbody>
-    </table>
-  </div>
+  <h2><span class="num">2</span> {"核心数据" if is_etf else "核心财务数据"}</h2>
+  {_render_section_2(d, is_etf, q_rows, eps_rows)}
 </section>
 
 <!-- 3. 估值分析 -->
@@ -614,58 +626,26 @@ def render(data: dict, scored: dict | None = None) -> str:
 
 <!-- 4. 成长性 -->
 <section>
-  <h2><span class="num">4</span> 成长性分析</h2>
-  <h3>年度收入趋势</h3>
-  <div class="data-table-wrapper">
-    <table>
-      <thead><tr><th>财年</th><th>收入</th><th>增速</th></tr></thead>
-      <tbody>{rev_rows}</tbody>
-    </table>
-  </div>
-
-  <div class="metric-grid">
-    <div class="metric-card good"><div class="label">收入增速（同比）</div><div class="value {'val-up' if rev_g and rev_g > 0 else 'val-down'}">{_pct(rev_g)}</div></div>
-    <div class="metric-card good"><div class="label">利润增速（同比）</div><div class="value {'val-up' if earn_g and earn_g > 0 else 'val-down'}">{_pct(earn_g)}</div></div>
-  </div>
+  <h2><span class="num">4</span> {"收益表现" if is_etf else "成长性分析"}</h2>
+  {_render_section_4(d, is_etf, rev_rows, rev_g, earn_g)}
 </section>
 
 <!-- 5. 利润效率 -->
 <section>
-  <h2><span class="num">5</span> 利润与效率指标</h2>
-  <div class="metric-grid">
-    <div class="metric-card good"><div class="label">净利润率</div><div class="value">{_pct(d['profit_margins'], signed=False)}</div></div>
-    <div class="metric-card good"><div class="label">毛利率</div><div class="value">{_pct(d['gross_margins'], signed=False)}</div></div>
-    <div class="metric-card good"><div class="label">EBITDA 利润率</div><div class="value">{_pct(d['ebitda_margins'], signed=False)}</div></div>
-    <div class="metric-card good"><div class="label">ROE（净资产收益率）</div><div class="value">{_pct(d['roe'], signed=False)}</div></div>
-    <div class="metric-card accent"><div class="label">ROA（总资产收益率）</div><div class="value">{_pct(d['roa'], signed=False)}</div></div>
-    <div class="metric-card good"><div class="label">自由现金流</div><div class="value">{_fmt_big(d['fcf'])}</div></div>
-    <div class="metric-card good"><div class="label">经营现金流</div><div class="value">{_fmt_big(d['ocf'])}</div></div>
-    <div class="metric-card accent"><div class="label">分红率</div><div class="value">{_pct(d['payout_ratio'], signed=False)}</div></div>
-    <div class="metric-card accent"><div class="label">股息率</div><div class="value">{_pct(d['dividend_yield'], signed=False)}</div></div>
-  </div>
+  <h2><span class="num">5</span> {"费率与收益" if is_etf else "利润与效率指标"}</h2>
+  {_render_section_5(d, is_etf)}
 </section>
 
 <!-- 6. 资产负债 -->
 <section>
-  <h2><span class="num">6</span> 资产负债健康度</h2>
-  <div class="metric-grid">
-    <div class="metric-card accent"><div class="label">现金</div><div class="value">{_fmt_big(d['total_cash'])}</div></div>
-    <div class="metric-card {'warn' if d['total_debt'] and d['total_cash'] and d['total_debt'] > d['total_cash'] else 'accent'}"><div class="label">总负债</div><div class="value">{_fmt_big(d['total_debt'])}</div></div>
-    <div class="metric-card {'danger' if de and de > 100 else 'warn' if de and de > 50 else 'good'}"><div class="label">负债权益比（D/E）</div><div class="value">{_val(de)}%</div><div class="sub">{'偏高' if de and de > 100 else '偏高' if de and de > 50 else '健康' if de else ''}</div></div>
-    <div class="metric-card {'good' if cr and cr > 1.5 else 'warn' if cr else 'accent'}"><div class="label">流动比率</div><div class="value">{_val(cr, '.2f')}</div></div>
-    <div class="metric-card {'good' if bs.get('quick_ratio') and bs['quick_ratio'] > 1 else 'warn' if bs.get('quick_ratio') else 'accent'}"><div class="label">速动比率</div><div class="value">{_val(bs.get('quick_ratio'), '.2f')}</div></div>
-    <div class="metric-card {'warn' if gw_pct > 30 else 'accent'}"><div class="label">商誉 + 无形资产</div><div class="value">{_fmt_big(bs.get('gw_intangibles'))}</div><div class="sub">占总资产 {gw_pct:.0f}%</div></div>
-  </div>
+  <h2><span class="num">6</span> {"基金概况" if is_etf else "资产负债健康度"}</h2>
+  {_render_section_6(d, is_etf)}
 </section>
 
 <!-- 7. 资本配置 -->
 <section>
   <h2><span class="num">7</span> 资本配置策略</h2>
-  <div class="info-card">
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
-      {cf_signals}
-    </div>
-  </div>
+  {_render_section_7(d, is_etf)}
 </section>
 
 <!-- 8. 机构与分析师 -->
@@ -729,6 +709,162 @@ def render(data: dict, scored: dict | None = None) -> str:
 </body>
 </html>"""
     return html
+
+
+def _render_section_2(d: dict, is_etf: bool, q_rows: str, eps_rows: str) -> str:
+    """渲染第 2 节：核心财务 / ETF 概览."""
+    if not is_etf:
+        return f"""<h3>季度趋势（最近 4 季）</h3>
+  <div class="data-table-wrapper"><table>
+    <thead><tr><th>季度</th><th>收入</th><th>毛利率</th><th>营业利润</th><th>净利润</th><th>稀释 EPS</th><th>EBITDA</th></tr></thead>
+    <tbody>{q_rows}</tbody>
+  </table></div>
+  <h3>EPS 超预期记录</h3>
+  <div class="data-table-wrapper"><table>
+    <thead><tr><th>季度</th><th>EPS 实际</th><th>EPS 预期</th><th>超预期幅度</th></tr></thead>
+    <tbody>{eps_rows}</tbody>
+  </table></div>"""
+    ed = d.get("etf_data", {})
+    items = []
+    if ed.get("net_assets"):
+        items.append(f'<div class="metric-card good"><div class="label">净资产规模</div><div class="value">{_fmt_big(ed["net_assets"])}</div></div>')
+    if ed.get("expense_ratio") is not None:
+        items.append(f'<div class="metric-card good"><div class="label">费率</div><div class="value">{ed["expense_ratio"]:.2f}%</div></div>')
+    if ed.get("nav_price"):
+        items.append(f'<div class="metric-card accent"><div class="label">NAV 净值</div><div class="value">{_val(ed["nav_price"], ".2f")}</div></div>')
+    if ed.get("inception_date"):
+        import datetime as _dt
+        try:
+            dt_str = _dt.datetime.fromtimestamp(ed["inception_date"]).strftime("%Y-%m-%d")
+            items.append(f'<div class="metric-card accent"><div class="label">成立日期</div><div class="value" style="font-size:1em;">{dt_str}</div></div>')
+        except Exception:
+            pass
+    ytd = ed.get("ytd_return")
+    r3m = ed.get("return_3m")
+    r3y = ed.get("return_3y")
+    r5y = ed.get("return_5y")
+    returns_html = ""
+    for label, val in [("年初至今", ytd), ("近 3 月", r3m), ("近 3 年（年化）", r3y), ("近 5 年（年化）", r5y)]:
+        if val is not None:
+            cls = "val-up" if val > 0 else "val-down"
+            returns_html += f'<tr><td>{label}</td><td class="{cls}"><strong>{_pct(val)}</strong></td></tr>'
+    ret_table = ""
+    if returns_html:
+        ret_table = f"""<h3>历史收益</h3>
+  <div class="data-table-wrapper"><table>
+    <thead><tr><th>周期</th><th>收益</th></tr></thead>
+    <tbody>{returns_html}</tbody>
+  </table></div>"""
+    return f"""<div class="metric-grid">{''.join(items)}</div>
+  {ret_table}"""
+
+
+def _render_section_4(d: dict, is_etf: bool, rev_rows: str, rev_g, earn_g) -> str:
+    """渲染第 4 节：成长性分析."""
+    if is_etf:
+        ed = d.get("etf_data", {})
+        cards = []
+        for label, val in [("年初至今", ed.get("ytd_return")), ("近 3 月", ed.get("return_3m")),
+                           ("近 3 年（年化）", ed.get("return_3y")), ("近 5 年（年化）", ed.get("return_5y"))]:
+            if val is not None:
+                cls = "val-up" if val > 0 else "val-down"
+                cards.append(f'<div class="metric-card good"><div class="label">{label}</div><div class="value {cls}">{_pct(val)}</div></div>')
+        return f"""<div class="info-card"><p style="color:var(--text-secondary);">ETF 无独立营收数据，以下为历史收益表现。</p></div>
+  <div class="metric-grid">{''.join(cards) if cards else '<div class="metric-card accent"><div class="label">暂无数据</div><div class="value">—</div></div>'}</div>"""
+    return f"""<h3>年度收入趋势</h3>
+  <div class="data-table-wrapper"><table>
+    <thead><tr><th>财年</th><th>收入</th><th>增速</th></tr></thead>
+    <tbody>{rev_rows}</tbody>
+  </table></div>
+  <div class="metric-grid">
+    <div class="metric-card good"><div class="label">收入增速（同比）</div><div class="value {'val-up' if rev_g and rev_g > 0 else 'val-down'}">{_pct(rev_g)}</div></div>
+    <div class="metric-card good"><div class="label">利润增速（同比）</div><div class="value {'val-up' if earn_g and earn_g > 0 else 'val-down'}">{_pct(earn_g)}</div></div>
+  </div>"""
+
+
+def _render_section_5(d: dict, is_etf: bool) -> str:
+    """渲染第 5 节：利润与效率指标."""
+    if is_etf:
+        ed = d.get("etf_data", {})
+        cards = []
+        for label, val in [("费率", ed.get("expense_ratio")), ("股息率", d.get("dividend_yield")),
+                           ("Beta (3Y)", ed.get("beta_3y")), ("净资产", ed.get("net_assets"))]:
+            if val is not None:
+                if label == "净资产":
+                    cards.append(f'<div class="metric-card accent"><div class="label">{label}</div><div class="value" style="font-size:1em;">{_fmt_big(val)}</div></div>')
+                elif label == "费率":
+                    cards.append(f'<div class="metric-card good"><div class="label">{label}</div><div class="value">{val:.2f}%</div><div class="sub">越低越好</div></div>')
+                elif label == "Beta (3Y)":
+                    cards.append(f'<div class="metric-card accent"><div class="label">{label}</div><div class="value">{val:.2f}</div></div>')
+                else:
+                    cards.append(f'<div class="metric-card good"><div class="label">{label}</div><div class="value">{_pct(val, signed=False)}</div></div>')
+        if not cards:
+            return '<div class="info-card"><p style="color:var(--text-secondary);">暂无 ETF 专项数据。</p></div>'
+        return f'<div class="metric-grid">{"".join(cards)}</div>'
+    return f"""<div class="metric-grid">
+    <div class="metric-card good"><div class="label">净利润率</div><div class="value">{_pct(d['profit_margins'], signed=False)}</div></div>
+    <div class="metric-card good"><div class="label">毛利率</div><div class="value">{_pct(d['gross_margins'], signed=False)}</div></div>
+    <div class="metric-card good"><div class="label">EBITDA 利润率</div><div class="value">{_pct(d['ebitda_margins'], signed=False)}</div></div>
+    <div class="metric-card good"><div class="label">ROE（净资产收益率）</div><div class="value">{_pct(d['roe'], signed=False)}</div></div>
+    <div class="metric-card accent"><div class="label">ROA（总资产收益率）</div><div class="value">{_pct(d['roa'], signed=False)}</div></div>
+    <div class="metric-card good"><div class="label">自由现金流</div><div class="value">{_fmt_big(d['fcf'])}</div></div>
+    <div class="metric-card good"><div class="label">经营现金流</div><div class="value">{_fmt_big(d['ocf'])}</div></div>
+    <div class="metric-card accent"><div class="label">分红率</div><div class="value">{_pct(d['payout_ratio'], signed=False)}</div></div>
+    <div class="metric-card accent"><div class="label">股息率</div><div class="value">{_pct(d['dividend_yield'], signed=False)}</div></div>
+  </div>"""
+
+
+def _render_section_6(d: dict, is_etf: bool) -> str:
+    """渲染第 6 节：资产负债健康度."""
+    if is_etf:
+        ed = d.get("etf_data", {})
+        cards = []
+        if ed.get("net_assets"):
+            cards.append(f'<div class="metric-card accent"><div class="label">净资产规模</div><div class="value">{_fmt_big(ed["net_assets"])}</div></div>')
+        if ed.get("fund_family"):
+            cards.append(f'<div class="metric-card accent"><div class="label">基金家族</div><div class="value" style="font-size:1em;">{ed["fund_family"]}</div></div>')
+        if ed.get("category"):
+            cards.append(f'<div class="metric-card accent"><div class="label">投资类别</div><div class="value" style="font-size:1em;">{ed["category"]}</div></div>')
+        if not cards:
+            return '<div class="info-card"><p style="color:var(--text-secondary);">暂无 ETF 资产负债数据。</p></div>'
+        return f'<div class="metric-grid">{"".join(cards)}</div>'
+    bs = d["balance_sheet"]
+    de = d["debt_to_equity"]
+    gw_pct = ((bs.get("gw_intangibles") or 0) / max(bs.get("total_assets", 1) or 1, 1)) * 100
+    cr = bs.get("current_ratio")
+    return f"""<div class="metric-grid">
+    <div class="metric-card accent"><div class="label">现金</div><div class="value">{_fmt_big(d['total_cash'])}</div></div>
+    <div class="metric-card {'warn' if d['total_debt'] and d['total_cash'] and d['total_debt'] > d['total_cash'] else 'accent'}"><div class="label">总负债</div><div class="value">{_fmt_big(d['total_debt'])}</div></div>
+    <div class="metric-card {'danger' if de and de > 100 else 'warn' if de and de > 50 else 'good'}"><div class="label">负债权益比（D/E）</div><div class="value">{_val(de)}%</div><div class="sub">{'偏高' if de and de > 100 else '偏高' if de and de > 50 else '健康' if de else ''}</div></div>
+    <div class="metric-card {'good' if cr and cr > 1.5 else 'warn' if cr else 'accent'}"><div class="label">流动比率</div><div class="value">{_val(cr, '.2f')}</div></div>
+    <div class="metric-card {'good' if bs.get('quick_ratio') and bs['quick_ratio'] > 1 else 'warn' if bs.get('quick_ratio') else 'accent'}"><div class="label">速动比率</div><div class="value">{_val(bs.get('quick_ratio'), '.2f')}</div></div>
+    <div class="metric-card {'warn' if gw_pct > 30 else 'accent'}"><div class="label">商誉 + 无形资产</div><div class="value">{_fmt_big(bs.get('gw_intangibles'))}</div><div class="sub">占总资产 {gw_pct:.0f}%</div></div>
+  </div>"""
+
+
+def _render_section_7(d: dict, is_etf: bool) -> str:
+    """渲染第 7 节：资本配置策略."""
+    if is_etf:
+        return '<div class="info-card"><p style="color:var(--text-secondary);">ETF 由基金管理人统一配置，无独立资本配置数据。</p></div>'
+    cf = d["cash_flow"]
+    cf_signals = ""
+    if cf.get("acquisitions") and abs(cf["acquisitions"]) > 1e8:
+        cf_signals += f"""<div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            最近季度并购支出:<br><span style="font-size:1.3em;font-weight:700;color:var(--blue);">{_fmt_big(abs(cf['acquisitions']))}</span></div>"""
+    if cf.get("debt_issued") and cf["debt_issued"] > 1e8:
+        cf_signals += f"""<div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            最近季度发债:<br><span style="font-size:1.3em;font-weight:700;color:var(--yellow);">{_fmt_big(cf['debt_issued'])}</span></div>"""
+    if cf.get("dividends_paid") and abs(cf["dividends_paid"]) > 1e6:
+        cf_signals += f"""<div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            最近季度分红:<br><span style="font-size:1.3em;font-weight:700;color:var(--green);">{_fmt_big(abs(cf['dividends_paid']))}</span></div>"""
+    if cf.get("buyback") and abs(cf["buyback"]) > 1e6:
+        cf_signals += f"""<div style="background:#0d1117;border-radius:8px;padding:14px;text-align:center;">
+            最近季度回购:<br><span style="font-size:1.3em;font-weight:700;color:var(--purple);">{_fmt_big(abs(cf['buyback']))}</span></div>"""
+    if not cf_signals:
+        cf_signals = '<p style="color:var(--text-secondary);">最近季度未发现大规模并购/发债/分红/回购活动。</p>'
+    return f"""<div class="info-card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">{cf_signals}</div>
+  </div>"""
 
 
 def _render_scoring_section(ticker: str, scored: dict | None) -> str:
@@ -1022,7 +1158,7 @@ def main():
         print(f"[错误] 数据拉取失败: {e}", file=sys.stderr)
         return 1
 
-    if not data.get("quarterly_financials"):
+    if data.get("asset_type") != "ETF" and not data.get("quarterly_financials"):
         print(f"[错误] 未获取到 {ticker} 的财务数据，请确认代码正确", file=sys.stderr)
         return 1
 
