@@ -1,6 +1,6 @@
 ---
 name: stock-analysis
-description: 美股个股深度分析。给定任意美股 ticker（如 AAPL、TSM、APH），自动拉取 yfinance 实时数据并生成完整中文深度分析报告（HTML），包含 10 大章节：公司定位、核心财务、估值、成长性、利润效率、资产负债、资本配置、机构持仓与分析师共识、最终判断、StockScope 评分框架。输出到 outputs/latest/{ticker}-analysis.html 并自动打开浏览器。当用户对某个美股代码要深度分析、财报解读、估值判断时触发。
+description: 美股个股深度分析。给定任意美股 ticker（如 AAPL、TSM、APH），自动拉取 yfinance 实时数据并生成完整中文深度分析报告（HTML / PDF），包含 10 大章节：公司定位、核心财务、估值、成长性、利润效率、资产负债、资本配置、机构持仓与分析师共识、最终判断、StockScope 评分框架。输出到 outputs/latest/{ticker}-analysis.html/pdf 并自动打开。当用户对某个美股代码要深度分析、财报解读、估值判断时触发。
 ---
 
 # Stock Analysis — 美股个股深度分析
@@ -8,17 +8,24 @@ description: 美股个股深度分析。给定任意美股 ticker（如 AAPL、T
 ## Quick start
 
 ```
+# 生成 HTML 报告（默认）
 python scripts/analyze.py <TICKER>
+
+# 生成 PDF 报告
+python scripts/analyze.py <TICKER> --format pdf
+
+# 同时生成 HTML + PDF
+python scripts/analyze.py <TICKER> --format both
 ```
 
-生成报告后使用 `open` 命令在浏览器中打开。
+生成报告后使用 `open` 命令在浏览器/预览中打开。
 
 ## Workflow
 
 1. 接收用户提供的股票代码（如 AAPL、APH、TSM）
-2. 运行 `python .claude/skills/stock-analysis/scripts/analyze.py {ticker}`
+2. 运行 `python .claude/skills/stock-analysis/scripts/analyze.py {ticker} [--format html|pdf|both]`
 3. 确认脚本执行成功（退出码 0，输出文件存在）
-4. 执行 `open outputs/latest/{ticker_lower}-analysis.html` 打开报告
+4. 执行 `open outputs/latest/{ticker_lower}-analysis.html` 或 `.pdf` 打开报告
 5. 向用户简要说明报告已生成 + 关键数据亮点（PE、PEG、增速、评级）
 
 ## 脚本功能
@@ -27,6 +34,7 @@ python scripts/analyze.py <TICKER>
 
 - 通过 yfinance 拉取：季度财报、年度收入、EPS 历史、资产负债表、现金流、机构持仓、分析师评级
 - 自动生成深色主题 HTML 报告（10 个章节，带数据表格、指标卡片、颜色高亮）
+- 通过 weasyprint 支持 PDF 输出（`--format pdf` / `--format both`）
 - 集成 StockScope 评分管线：调用入场分/质量分/估值分/趋势分/时钟模型/红牌机制，含完整因子拆解
 - 根据 PEG/Fwd PE 自动判断估值档位并生成一句话定位
 
@@ -47,4 +55,5 @@ python scripts/analyze.py <TICKER>
 
 - Python 3.11+（使用 pyenv 中的 `python`）
 - yfinance（已安装）
+- weasyprint（用于 PDF 生成，`pip install weasyprint`）
 - deep-translator（用于业务概述中文化）

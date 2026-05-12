@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""StockScope 个股深度分析 — 拉取 yfinance 数据 -> 生成中文 HTML 报告."""
+"""StockScope 个股深度分析 — 拉取 yfinance 数据 -> 生成中文 HTML / PDF 报告."""
 from __future__ import annotations
 
 import argparse
@@ -120,6 +120,7 @@ _SECTOR_CN = {
 }
 
 CSS = """<style>
+  /* ═══════════ 屏幕：深色主题 ═══════════ */
   :root { --bg:#0d1117;--card-bg:#161b22;--border:#30363d;--text:#c9d1d9;
     --text-secondary:#8b949e;--green:#3fb950;--red:#f85149;--yellow:#d2991d;
     --blue:#58a6ff;--purple:#bc8cff;--orange:#f0883e;--accent:#1f6feb; }
@@ -164,6 +165,69 @@ CSS = """<style>
   .suggestion-item{background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center;}
   .suggestion-item .title{font-size:.8em;color:var(--text-secondary);margin-bottom:4px;} .suggestion-item .val{font-size:1.15em;font-weight:700;color:#f0f6fc;}
   footer{text-align:center;padding:24px;color:var(--text-secondary);font-size:.8em;border-top:1px solid var(--border);}
+</style>
+<style media="print">
+  /* ═══════════ 打印 / PDF：白底排版主题 ═══════════ */
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm;
+    @bottom-center { content: "— " counter(page) " —"; font-size: 9px; color: #999; } }
+  @page :first { @bottom-center { content: none; } }
+
+  body { background:#fff;max-width:none;margin:0;font-size:10pt;line-height:1.6;color:#222;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif; }
+  p, li, td, th, div { color:#222; }
+  header { background:#f6f8fa;border-bottom:3px solid #1f6feb;padding:28px 20px;text-align:center; }
+  header h1 { color:#111;font-size:1.6em; }
+  header .ticker { color:#0969da;font-size:2.4em;letter-spacing:3px; }
+  header .subtitle, header .date { color:#555; }
+  header .date { color:#0969da; }
+
+  section { padding:14px 0; margin-bottom:6px; }
+  section h2 { color:#111;font-size:1.15em;border-bottom:2px solid #d0d7de;padding-bottom:6px;margin-bottom:10px; }
+  section h2 .num { font-size:.85em;background:#1f6feb;color:#fff; }
+  section h3 { color:#333;margin-bottom:6px;font-size:1.05em; }
+
+  table { font-size:.82em; }
+  thead th { background:#e5e7eb;color:#111;border:1px solid #c0c7cf;padding:6px 10px; }
+  tbody td { border:1px solid #d0d7de;padding:5px 10px; }
+  tbody tr:nth-child(even){background:#f8f9fa;}
+  .highlight { background:#e6f7e9!important; }
+  .highlight-red { background:#fde8e9!important; }
+
+  .val-up{color:#1a7f37!important;font-weight:600;} .val-down{color:#cf222e!important;font-weight:600;} .val-best{color:#9a6700!important;font-weight:700;}
+
+  .metric-grid { display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px; }
+  .metric-card { flex:1 1 190px;background:#f8f9fa;border:1px solid #d0d7de;border-radius:6px;padding:10px 14px; }
+  .metric-card .label { color:#555;font-size:.78em; }
+  .metric-card .value { color:#111;font-size:1.2em;font-weight:700; }
+  .metric-card .sub{color:#555;font-size:.75em;}
+  .metric-card.good{border-left:3px solid #1a7f37;} .metric-card.warn{border-left:3px solid #9a6700;}
+  .metric-card.danger{border-left:3px solid #cf222e;} .metric-card.accent{border-left:3px solid #0969da;}
+
+  .tag-bull{background:#e6f7e9;color:#1a7f37!important;border:1px solid #b7dfc2;}
+  .tag-bear{background:#fde8e9;color:#cf222e!important;border:1px solid #f5c2c5;}
+  .tag-neutral{background:#fef5e4;color:#9a6700!important;border:1px solid #f5d9a0;}
+  .tag-info{background:#e6f0fb;color:#0969da!important;border:1px solid #b6d4f5;}
+
+  .info-card { background:#f8f9fa;border:1px solid #d0d7de;border-radius:6px;padding:16px;margin-bottom:14px; }
+  .grid-2 { display:flex;gap:16px; }
+  .grid-2 > * { flex:1;min-width:0; }
+
+  .verdict-box { background:#f0fdf4;border:2px solid #b7dfc2;padding:24px;margin-top:14px; }
+  .verdict-box h3 { color:#1a7f37; }
+  .verdict-box .big-call { color:#1a7f37;font-size:1.4em; }
+
+  .quote{background:#f0f7ff;color:#555;border-left:3px solid #0969da;}
+
+  .suggestion-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+  .suggestion-item{flex:1 1 150px;background:#f8f9fa;border:1px solid #d0d7de;border-radius:6px;padding:12px;}
+  .suggestion-item .title{color:#555;font-size:.78em;}
+  .suggestion-item .val{color:#111;font-size:1.1em;font-weight:700;}
+
+  footer{border-top:1px solid #d0d7de;color:#888;padding:16px;font-size:.8em;}
+
+  section, .info-card, .verdict-box { break-inside:avoid; }
+  h2, h3 { break-after:avoid; }
+  thead { display:table-header-group; }
 </style>"""
 
 
@@ -1628,6 +1692,8 @@ def main():
     parser = argparse.ArgumentParser(description="StockScope 个股深度分析")
     parser.add_argument("ticker", help="股票代码（例如 AAPL、TSM、APH）")
     parser.add_argument("--output-dir", default="outputs/latest", help="输出目录")
+    parser.add_argument("--format", default="html", choices=["html", "pdf", "both"],
+                        help="输出格式：html / pdf / both（默认 html）")
     args = parser.parse_args()
 
     ticker = args.ticker.upper().strip()
@@ -1644,14 +1710,28 @@ def main():
 
     print(f"[StockScope] 正在运行评分管线...", flush=True)
     scored = run_stockscope_scoring(ticker)
-    print(f"[StockScope] 正在生成 HTML 报告...")
+    print(f"[StockScope] 正在生成报告...")
     html = render(data, scored)
 
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
-    outpath = outdir / f"{ticker.lower()}-analysis.html"
-    outpath.write_text(html, encoding="utf-8")
-    print(f"[StockScope] 报告已生成: {outpath}")
+    base = outdir / f"{ticker.lower()}-analysis"
+
+    # ── HTML 输出 ──
+    if args.format in ("html", "both"):
+        html_path = base.with_suffix(".html")
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[StockScope] HTML 报告已生成: {html_path}")
+
+    # ── PDF 输出 ──
+    if args.format in ("pdf", "both"):
+        try:
+            from weasyprint import HTML
+            pdf_path = base.with_suffix(".pdf")
+            HTML(string=html).write_pdf(pdf_path)
+            print(f"[StockScope] PDF 报告已生成: {pdf_path}")
+        except Exception as e:
+            print(f"[警告] PDF 生成失败: {e}", file=sys.stderr)
 
     # 刷新研报索引
     try:
