@@ -603,15 +603,18 @@ def render(data: dict, scored: dict | None = None) -> str:
   <div class="quote"><strong>一句话定位：</strong>{tagline}</div>
 </section>
 
-<!-- 2. 核心财务 -->
+<!-- 2. 核心壁垒与竞争优势 -->
+{_render_moat_section(d)}
+
+<!-- 3. 核心财务 -->
 <section>
-  <h2><span class="num">2</span> {"核心数据" if is_etf else "核心财务数据"}</h2>
+  <h2><span class="num">3</span> {"核心数据" if is_etf else "核心财务数据"}</h2>
   {_render_section_2(d, is_etf, q_rows, eps_rows)}
 </section>
 
 <!-- 3. 估值分析 -->
 <section>
-  <h2><span class="num">3</span> 估值分析</h2>
+  <h2><span class="num">4</span> 估值分析</h2>
   <div class="metric-grid">
     <div class="metric-card accent"><div class="label">Forward PE（预期市盈率）</div><div class="value">{_val(fwd_pe)}x</div><div class="sub">{'偏低' if fwd_pe and fwd_pe < 15 else '合理' if fwd_pe and fwd_pe < 25 else '偏高' if fwd_pe and fwd_pe >= 25 else ''}</div></div>
     <div class="metric-card good"><div class="label">PEG（市盈率/增长率）</div><div class="value">{_val(peg, '.2f')}</div><div class="sub">{'<1 极度低估' if peg and peg < 1 else '<1.5 合理偏低' if peg and peg < 1.5 else '偏高' if peg and peg >= 2 else ''}</div></div>
@@ -626,31 +629,31 @@ def render(data: dict, scored: dict | None = None) -> str:
 
 <!-- 4. 成长性 -->
 <section>
-  <h2><span class="num">4</span> {"收益表现" if is_etf else "成长性分析"}</h2>
+  <h2><span class="num">5</span> {"收益表现" if is_etf else "成长性分析"}</h2>
   {_render_section_4(d, is_etf, rev_rows, rev_g, earn_g)}
 </section>
 
 <!-- 5. 利润效率 -->
 <section>
-  <h2><span class="num">5</span> {"费率与收益" if is_etf else "利润与效率指标"}</h2>
+  <h2><span class="num">6</span> {"费率与收益" if is_etf else "利润与效率指标"}</h2>
   {_render_section_5(d, is_etf)}
 </section>
 
 <!-- 6. 资产负债 -->
 <section>
-  <h2><span class="num">6</span> {"基金概况" if is_etf else "资产负债健康度"}</h2>
+  <h2><span class="num">7</span> {"基金概况" if is_etf else "资产负债健康度"}</h2>
   {_render_section_6(d, is_etf)}
 </section>
 
 <!-- 7. 资本配置 -->
 <section>
-  <h2><span class="num">7</span> 资本配置策略</h2>
+  <h2><span class="num">8</span> 资本配置策略</h2>
   {_render_section_7(d, is_etf)}
 </section>
 
 <!-- 8. 机构与分析师 -->
 <section>
-  <h2><span class="num">8</span> 机构持仓 & 分析师共识</h2>
+  <h2><span class="num">9</span> 机构持仓 & 分析师共识</h2>
   <div class="grid-2">
     <div>
       <div class="metric-grid" style="grid-template-columns:1fr 1fr;">
@@ -677,7 +680,7 @@ def render(data: dict, scored: dict | None = None) -> str:
 
 <!-- 9. 最终判断 -->
 <section>
-  <h2><span class="num">9</span> 最终判断</h2>
+  <h2><span class="num">10</span> 最终判断</h2>
   <div class="verdict-box">
     <h3>综合评级</h3>
     <div class="big-call">{verdict_text}</div>
@@ -709,6 +712,483 @@ def render(data: dict, scored: dict | None = None) -> str:
 </body>
 </html>"""
     return html
+
+
+def _render_moat_section(d: dict) -> str:
+    """渲染第 2 节：商业模式 + 核心壁垒."""
+    if d.get("asset_type") == "ETF":
+        return """<section>
+  <h2><span class="num">2</span> 商业模式与核心壁垒</h2>
+  <div class="info-card"><p style="color:var(--text-secondary);">ETF 为被动投资工具，无独立商业模式分析。</p></div>
+</section>"""
+
+    name = d["name"]
+    industry = d["industry"]
+    summary = d.get("summary", "")
+    sector = d.get("sector", "")
+    gm = d.get("gross_margins")
+    pm = d.get("profit_margins")
+    roe_val = d.get("roe")
+    rev = d.get("total_revenue")
+    rev_g = d.get("revenue_growth")
+    fcf = d.get("fcf")
+
+    # ── 商业模式拆解 ──
+    bm = _analyze_business_model(name, industry, sector, summary, d)
+
+    # ── 量化佐证 ──
+    evidence_cards = _build_evidence_cards(d)
+
+    # ── 护城河判断 ──
+    moats, strength, moat_desc = _assess_moat(name, industry, sector, summary, d)
+
+    # ── 风险 ──
+    risks = _business_risks(name, industry, sector, summary, d)
+
+    # ── 强度标签样式 ──
+    strength_css = {"极强": ("var(--green)", "rgba(63,185,80,.15)"),
+                    "较强": ("var(--blue)", "rgba(88,166,255,.15)"),
+                    "中等": ("var(--yellow)", "rgba(210,153,29,.15)"),
+                    "待研判": ("var(--text-secondary)", "rgba(139,148,158,.1)")}
+    sc = strength_css.get(strength, strength_css["待研判"])
+
+    return f"""<section>
+  <h2><span class="num">2</span> 商业模式与核心壁垒</h2>
+
+  <!-- 商业模式 -->
+  <div class="info-card">
+    <h3 style="color:#f0f6fc;margin-bottom:10px;">生意怎么做？</h3>
+    <p style="line-height:1.9;">{bm}</p>
+  </div>
+
+  <!-- 量化信号 -->
+  <h3 style="color:#f0f6fc;margin-bottom:8px;">财务数据佐证</h3>
+  <div class="metric-grid">
+    {evidence_cards}
+  </div>
+
+  <!-- 护城河判断 -->
+  <div class="info-card" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <h3 style="color:#f0f6fc;margin:0;">护城河评估</h3>
+      <span style="display:inline-block;padding:4px 14px;border-radius:14px;font-weight:700;font-size:.85em;color:{sc[0]};background:{sc[1]};border:1px solid {sc[0]};">{strength}</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      {"".join(f'<span class="tag tag-info" style="font-size:.85em;">{m}</span>' for m in moats) if moats else '<span class="tag tag-bear" style="font-size:.85em;">无明显护城河</span>'}
+    </div>
+    <p style="line-height:1.8;color:var(--text);">{moat_desc}</p>
+  </div>
+
+  <!-- 风险 -->
+  <div class="info-card" style="margin-top:16px;">
+    <h3 style="color:var(--red);margin-bottom:8px;">⚠ 当前面临的风险</h3>
+    <ul style="color:var(--text-secondary);padding-left:20px;line-height:1.9;">
+      {risks}
+    </ul>
+  </div>
+</section>"""
+
+
+# ═══════════════════════════════════════
+# 商业模式分析引擎
+# ═══════════════════════════════════════
+
+# ── 知名公司商业模式知识库 ──
+_KNOWN_BUSINESS_MODELS: dict[str, dict] = {
+    "GOOGL": {
+        "products": ["Google Search（搜索广告）", "YouTube（视频+广告）", "Google Cloud（企业云）",
+                     "Android/Chrome（生态入口）", "Gmail/Maps/Drive（用户粘性工具）"],
+        "rev_model": "广告收入为核心（~75%），搜索+YouTube双引擎；云服务快速增长；Android/Chrome为免费生态牢笼",
+        "moat": "搜索引擎接近全球垄断（90%+份额），用户数据和广告网络的飞轮效应无人能敌。Gmail/YouTube/Android 构成免费工具矩阵，20亿+用户深度依赖，迁移成本极高。云服务虽排第三但增长迅猛。",
+        "strength": "极强",
+    },
+    "GOOG": {
+        "products": ["Google Search（搜索广告）", "YouTube（视频+广告）", "Google Cloud（企业云）",
+                     "Android/Chrome（生态入口）", "Gmail/Maps/Drive（用户粘性工具）"],
+        "rev_model": "广告收入为核心（~75%），搜索+YouTube双引擎；云服务快速增长；Android/Chrome为免费生态牢笼",
+        "moat": "搜索引擎接近全球垄断（90%+份额），用户数据和广告网络的飞轮效应无人能敌。Gmail/YouTube/Android 构成免费工具矩阵，20亿+用户深度依赖，迁移成本极高。",
+        "strength": "极强",
+    },
+    "AAPL": {
+        "products": ["iPhone（核心现金牛）", "Mac/iPad（生产力工具）", "Services（App Store/Apple Music/iCloud）",
+                     "Wearables（AirPods/Apple Watch）"],
+        "rev_model": "硬件销售为主（~80%），但服务收入占比持续提升（高毛利订阅）。封闭生态锁定用户，硬件→服务→更强粘性的循环。",
+        "moat": "全球最强的消费电子品牌+封闭生态。iOS用户转换到Android的心理和实际成本极高。服务收入（App Store抽成30%、订阅）是印钞机。供应链控制力全球第一。但iPhone收入占比过高是结构性问题。",
+        "strength": "极强",
+    },
+    "MSFT": {
+        "products": ["Azure（云基础设施）", "Office 365/Teams（生产力订阅）", "Windows（PC生态）",
+                     "LinkedIn（职场社交）", "GitHub/Copilot（开发者生态+AI）"],
+        "rev_model": "云+订阅为核心。Azure是第二大云、Office365是全球办公标配、Windows授权+LinkedIn广告+Copilot AI新增长极。",
+        "moat": "企业软件最深的护城河：Office→Teams→Azure→Copilot 形成企业工作流闭环，替换任一部分都会破坏整个协作体系。政府和大企业客户粘性极高。OpenAI独家合作加持AI先发优势。",
+        "strength": "极强",
+    },
+    "AMZN": {
+        "products": ["AWS（云基础设施全球第一）", "电商零售（自营+第三方）", "Prime会员（订阅+粘性）",
+                     "广告（电商搜索广告）"],
+        "rev_model": "电商薄利走量+AWS高利润输血。Prime会员锁定消费行为。第三方卖家生态（FBA仓储物流）提供规模壁垒。",
+        "moat": "电商+云的独特组合。AWS利润养电商价格战，电商规模养物流基建，形成双轮垄断。Prime会员1.5亿+，续费率极高。仓储物流网络重建成本以千亿计。但零售业务本身利润率极薄（~2-3%），依赖AWS补贴。",
+        "strength": "极强",
+    },
+    "META": {
+        "products": ["Facebook/Instagram（社交广告）", "WhatsApp（即时通讯）", "Reels（短视频广告）"],
+        "rev_model": "广告收入近乎100%。全球最大的社交注意力池，精准广告投放无可替代。",
+        "moat": "全球日活30亿+的社交帝国。广告主无法放弃的用户规模和精准度。Instagram成功卡位TikTok挑战。社交图谱的数据壁垒无法复制。但100%依赖广告收入，商业模式单一且受经济周期影响大。",
+        "strength": "极强",
+    },
+    "NFLX": {
+        "products": ["流媒体订阅（核心）", "原创内容制作", "广告层（低价订阅）"],
+        "rev_model": "订阅制（月费）。原创内容→吸引订阅→投入更多内容→提升续费率。广告层扩展低价市场。",
+        "moat": "全球2.8亿订阅的流媒体先行者。内容推荐算法和制作经验的先发优势。原创内容库规模是最大竞争壁垒。但护城河没有想象中深—用户可根据内容随时切换平台，Disney+/Max/Apple TV+ 竞争白热化，内容成本持续攀升压缩利润。",
+        "strength": "较强",
+    },
+    "NVDA": {
+        "products": ["GPU芯片（AI训练/推理）", "CUDA软件生态", "数据中心解决方案", "游戏显卡"],
+        "rev_model": "硬件销售。数据中心GPU是绝对核心（AI需求爆炸），CUDA软件生态绑定开发者，形成软硬一体平台。",
+        "moat": "AI芯片事实垄断（80%+市场份额）。CUDA生态是最大护城河—开发者已投入十几年学习成本，竞争对手硬件再好也无法替代软件生态。但当前估值已充分定价增长预期，且地缘政治风险日益突出。",
+        "strength": "极强",
+    },
+    "TSLA": {
+        "products": ["电动车（Model 3/Y/S/X/Cybertruck）", "FSD自动驾驶软件", "能源存储（Powerwall/Megapack）"],
+        "rev_model": "卖车为主，但FSD软件订阅和能源业务是未来利润引擎。直销模式跳过经销商。",
+        "moat": "电动车品牌+充电网络+自动驾驶数据的先发壁垒。全球超充网络是竞争对手短期无法复制的基建。但护城河正被快速侵蚀—传统车企和造车新势力全力追赶，中国市场面临激烈价格战，FSD商业化时间表反复推迟。",
+        "strength": "较强",
+    },
+    "TSM": {
+        "products": ["先进制程晶圆代工（3nm/5nm/7nm）", "先进封装（CoWoS/3D IC）"],
+        "rev_model": "纯代工模式，按晶圆收费。苹果/英伟达/AMD都是客户。技术领先→定价权→高毛利→再投资研发的循环。",
+        "moat": "全球唯一的先进芯片代工厂。3nm/5nm制程仅有台积电和三星，台积电良率和产能遥遥领先。建一座先进晶圆厂需200亿+美金和5年+时间，进入门槛极高。但地缘政治风险（台海局势）是其阿喀琉斯之踵。",
+        "strength": "极强",
+    },
+    "APH": {
+        "products": ["电气/电子/光纤连接器", "互连系统与传感器", "背板/线束/电缆组件"],
+        "rev_model": "B2B 零部件制造。为汽车、航空、通信、军工、工业客户提供关键互连组件。产品单价低但不可或缺，认证壁垒极高（一旦进入客户供应链，替换成本巨大）。",
+        "moat": "互连器件市场的隐形冠军。产品深度嵌入客户产品设计（design-in），一旦被采用就会被锁定在整个产品生命周期。覆盖行业极广（汽车+航空+军工+通信+工业），单一行业周期不会致命。全球制造和分销网络是后发者难以复制的竞争壁垒。但本质上仍是零部件代工，产品同质化风险存在，且缺乏品牌溢价能力。",
+        "strength": "较强",
+        "tags": ["客户锁定", "规模效应", "转换成本"],
+    },
+}
+
+
+def _analyze_business_model(name: str, industry: str, sector: str, summary: str, d: dict) -> str:
+    """解析商业模式：做什么生意、怎么赚钱、为什么难被替代."""
+
+    # ── 先查知识库 ──
+    ticker = d.get("ticker", "")
+    kb = _KNOWN_BUSINESS_MODELS.get(ticker, {})
+
+    parts = []
+
+    # 产品矩阵
+    if kb.get("products"):
+        parts.append(f"<strong>核心产品线：</strong>")
+        parts.append(" · ".join(kb["products"]) + "。")
+    else:
+        products = _extract_products(summary, industry, sector, d)
+        if products:
+            parts.append(f"<strong>主要业务：</strong>{products}")
+
+    # 收入模式
+    parts.append(f"<strong>赚钱方式：</strong>{kb.get('rev_model') or _infer_rev_model(industry, sector, summary, d)}")
+
+    # 规模/地位
+    rev = d.get("total_revenue")
+    mcap = d.get("market_cap")
+    if rev and rev > 100_000_000_000:
+        parts.append(f"年收入 {_fmt_big(rev)}、市值 {_fmt_big(mcap)}，属于全球顶级规模企业。")
+    elif rev and rev > 10_000_000_000:
+        parts.append(f"年收入 {_fmt_big(rev)}，已经跨越规模化门槛。")
+
+    return "".join(f"<span style='display:block;margin-bottom:8px;'>{p}</span>" for p in parts)
+
+
+def _extract_products(summary: str, industry: str, sector: str, d: dict) -> str:
+    """从业务摘要中提取主要产品/服务线（精简版，最多 200 字）."""
+    if not summary or len(summary) < 50:
+        return ""
+    text = summary
+    # 尝试取前两个完整句子
+    sentences = [s.strip() for s in text.replace("; ", ". ").split(". ") if len(s.strip()) > 30]
+    parts = []
+    total = 0
+    for s in sentences:
+        if total + len(s) > 200:
+            parts.append(s[:200 - total] + "...")
+            break
+        parts.append(s)
+        total += len(s) + 1
+        if len(parts) >= 2:
+            break
+    if parts:
+        return "。".join(parts)
+    # 回退：硬截断
+    return text[:180] + ("..." if len(text) > 180 else "")
+
+
+def _infer_rev_model(industry: str, sector: str, summary: str, d: dict) -> str:
+    """根据行业推断收入模式."""
+    il = industry.lower()
+    sl = sector.lower()
+    sl_summary = (summary or "").lower()[:300]
+    gm = d.get("gross_margins") or 0
+
+    if any(kw in sl_summary for kw in ["subscription", "recurring", "saas", "monthly", "annual fee"]):
+        return "订阅/经常性收入模式，客户定期付费，收入可预测性高。"
+    if any(kw in il for kw in ["software", "internet", "cloud"]) or any(kw in sl_summary for kw in ["cloud", "platform"]):
+        if gm > 60:
+            return "软件/平台型收入（高毛利），以订阅或按量付费为主，边际成本极低。"
+        return "软件/技术服务收入，以订阅或项目制计费。"
+    if any(kw in il for kw in ["advertising", "internet content"]) or "advertising" in sl_summary:
+        return "以广告收入为核心，用户免费使用→平台积累注意力→向广告主收费。"
+    if any(kw in il for kw in ["bank", "insurance", "capital market", "financial"]):
+        return "金融中介模式，赚取息差/佣金/管理费，资产负债表驱动。"
+    if any(kw in il for kw in ["semiconductor", "hardware", "electronic", "equipment"]):
+        return "硬件/设备销售模式，通过技术领先和规模制造获取溢价。"
+    if any(kw in il for kw in ["retail", "e-commerce", "restaurant", "consumer"]):
+        return "面向消费者的零售/服务模式，规模效应和品牌是核心。"
+    if any(kw in il for kw in ["pharma", "biotech", "drug", "medical"]):
+        return "药品/器械销售模式，专利保护和监管批准构成准入壁垒。"
+    if any(kw in il for kw in ["oil", "energy", "utility", "mining"]):
+        return "资源/能源型模式，资产重、周期性强，资源储量和开采成本决定盈利能力。"
+    if any(kw in il for kw in ["aerospace", "defense"]):
+        return "政府/大企业合同制，长周期、高门槛，关系和技术并重。"
+    if any(kw in il for kw in ["electronic component", "connector", "interconnect", "equipment", "industrial", "machinery", "manufacturing"]):
+        return "B2B 制造/销售模式，为下游客户提供关键零部件和子系统，深度绑定客户产品生命周期，替换成本高、认证周期长。"
+    if any(kw in il for kw in ["telecom", "communication"]):
+        return "通信基础设施销售+服务模式，客户为运营商和大企业，合同周期长、技术认证壁垒高。"
+    return "需结合业务概述进一步分析。"
+
+
+def _build_evidence_cards(d: dict) -> str:
+    """构建量化佐证卡片."""
+    cards = []
+    gm = d.get("gross_margins")
+    pm = d.get("profit_margins")
+    roe_val = d.get("roe")
+    rev_g = d.get("revenue_growth")
+    fcf = d.get("fcf")
+    rev = d.get("total_revenue")
+
+    if gm is not None:
+        level = "good" if gm > 45 else "warn" if gm > 25 else "danger"
+        desc = "极强定价权" if gm > 60 else "健康定价能力" if gm > 40 else "行业平均" if gm > 25 else "偏低"
+        cards.append(f'<div class="metric-card {level}"><div class="label">毛利率</div><div class="value">{gm:.1f}%</div><div class="sub">{desc}</div></div>')
+    if pm is not None:
+        level = "good" if pm > 15 else "warn" if pm > 5 else "danger"
+        cards.append(f'<div class="metric-card {level}"><div class="label">净利率</div><div class="value">{pm:.1f}%</div><div class="sub">{"印钞机" if pm > 20 else "优秀" if pm > 10 else "一般"}</div></div>')
+    if roe_val is not None:
+        level = "good" if roe_val > 20 else "warn" if roe_val > 10 else "danger"
+        cards.append(f'<div class="metric-card {level}"><div class="label">ROE</div><div class="value">{roe_val:.1f}%</div><div class="sub">{"超额回报" if roe_val > 25 else "良好" if roe_val > 15 else "一般"}</div></div>')
+    if rev_g is not None:
+        cls = "val-up" if rev_g > 0 else "val-down"
+        cards.append(f'<div class="metric-card good"><div class="label">收入增速</div><div class="value {cls}">{rev_g:+.1f}%</div><div class="sub">{"高速增长" if rev_g > 15 else "稳健" if rev_g > 5 else "放缓"}</div></div>')
+    if fcf is not None:
+        level = "good" if fcf > 0 else "danger"
+        cards.append(f'<div class="metric-card {level}"><div class="label">自由现金流</div><div class="value">{_fmt_big(fcf)}</div><div class="sub">{"真金白银" if fcf and fcf > 1e9 else "注意现金流" if fcf and fcf < 0 else ""}</div></div>')
+    if rev is not None and rev > 1e9:
+        cards.append(f'<div class="metric-card accent"><div class="label">年收入规模</div><div class="value">{_fmt_big(rev)}</div><div class="sub">{"巨头" if rev > 100e9 else "大型" if rev > 10e9 else "中型"}</div></div>')
+
+    return "".join(cards) if cards else '<div class="metric-card accent"><div class="label">数据有限</div><div class="value">—</div></div>'
+
+
+def _assess_moat(name: str, industry: str, sector: str, summary: str, d: dict) -> tuple[list[str], str, str]:
+    """评估护城河：返回 (标签列表, 强度, 详细描述)."""
+    ticker = d.get("ticker", "")
+    gm = d.get("gross_margins") or 0
+    pm = d.get("profit_margins") or 0
+    roe_val = d.get("roe") or 0
+    rev = d.get("total_revenue") or 0
+
+    # ── 先查知识库 ──
+    kb = _KNOWN_BUSINESS_MODELS.get(ticker, {})
+    if kb.get("moat"):
+        tags = kb.get("tags") or _extract_moat_tags(kb["moat"])
+        strength = kb.get("strength") or _infer_strength_from_tags(tags, gm, roe_val, rev)
+        desc = kb["moat"]
+        return tags, strength, desc
+
+    # ── 没有知识库 → 从行业和财务数据推断 ──
+    tags, desc = _infer_moat_from_data(name, industry, summary, d)
+    strength = _infer_strength_from_tags(tags, gm, roe_val, rev)
+    return tags, strength, desc
+
+
+def _extract_moat_tags(moat_text: str) -> list[str]:
+    """从护城河描述中提取标签."""
+    tags = []
+    mapping = [
+        ("垄断", "市场垄断"), ("份额", "市场份额"), ("生态", "生态锁定"), ("闭环", "生态锁定"),
+        ("网络效应", "网络效应"), ("飞轮", "飞轮效应"), ("平台", "平台效应"),
+        ("品牌", "品牌壁垒"), ("数据", "数据壁垒"), ("专利", "技术壁垒"),
+        ("技术", "技术壁垒"), ("IP", "技术壁垒"), ("规模", "规模效应"),
+        ("成本", "成本优势"), ("体量", "规模效应"), ("切换", "转换成本"),
+        ("迁移", "转换成本"), ("替换", "转换成本"), ("监管", "监管壁垒"),
+        ("牌照", "监管壁垒"), ("合规", "监管壁垒"), ("design-in", "客户锁定"),
+    ]
+    for keyword, tag in mapping:
+        if keyword in moat_text and tag not in tags:
+            tags.append(tag)
+    return tags[:5] if tags else ["综合壁垒"]
+
+
+def _infer_strength_from_tags(tags: list[str], gm: float, roe: float, rev: float) -> str:
+    """根据标签和财务数据判断护城河强度."""
+    strong_tags = {"市场垄断", "网络效应", "生态锁定", "飞轮效应"}
+    medium_tags = {"技术壁垒", "品牌壁垒", "转换成本", "监管壁垒", "客户锁定"}
+    weak_indicator = (gm < 25 or roe < 8 or rev < 500_000_000)
+
+    strong_count = len([t for t in tags if t in strong_tags])
+    medium_count = len([t for t in tags if t in medium_tags])
+
+    if strong_count >= 2 and not weak_indicator:
+        return "极强"
+    if strong_count >= 1 or medium_count >= 2:
+        return "较强" if not weak_indicator else "中等"
+    if medium_count >= 1:
+        return "中等"
+    if gm > 40 and roe > 15:
+        return "较强"
+    if gm > 25 and roe > 10:
+        return "中等"
+    return "待研判"
+
+
+def _infer_moat_from_data(name: str, industry: str, summary: str, d: dict) -> tuple[list[str], str]:
+    """没有知识库时，从行业+财务推断护城河."""
+    il = industry.lower()
+    sl = (summary or "").lower()[:300]
+    gm = d.get("gross_margins") or 0
+    pm = d.get("profit_margins") or 0
+    roe_val = d.get("roe") or 0
+    rev = d.get("total_revenue") or 0
+    de = d.get("debt_to_equity") or 0
+
+    tags = []
+    desc_parts = [f"{name} 属于 {industry} 行业。"]
+
+    # 转换成本判断
+    if any(kw in il for kw in ["software", "saas", "cloud", "enterprise", "bank", "payment", "insurance", "broker", "data"]):
+        tags.append("转换成本")
+        desc_parts.append("产品深度融入客户工作流，替换成本高。")
+    elif any(kw in il for kw in ["electronic component", "connector", "interconnect", "equipment", "industrial", "machinery"]):
+        tags.append("客户锁定")
+        desc_parts.append("产品通过 design-in 嵌入客户供应链，认证周期长、替换意愿低。")
+
+    # 品牌/网络效应
+    if any(kw in il for kw in ["internet content", "social", "marketplace", "platform", "e-commerce", "advertising"]):
+        tags.append("网络效应")
+        desc_parts.append("平台模式具有天然的规模自我强化特性。")
+    if any(kw in il for kw in ["beverage", "luxury", "restaurant", "apparel", "cosmetic", "retail"]):
+        tags.append("品牌壁垒")
+        desc_parts.append("消费者品牌认知度是重要护城河。")
+
+    # 技术/专利
+    if any(kw in il for kw in ["semiconductor", "pharma", "biotech", "medical device", "aerospace", "defense", "drug"]):
+        tags.append("技术壁垒")
+        desc_parts.append("核心技术依赖长期研发和专利保护。")
+
+    # 监管
+    if any(kw in il for kw in ["bank", "insurance", "utility", "telecom", "railroad"]):
+        tags.append("监管壁垒")
+        desc_parts.append("行业准入受严格监管，牌照稀缺。")
+
+    # 规模化
+    if rev > 20e9:
+        tags.append("规模效应")
+        desc_parts.append(f"年收入 {_fmt_big(rev)} 的庞大体量构成结构性成本优势。")
+    elif rev > 5e9 and gm > 40:
+        tags.append("规模效应")
+        desc_parts.append("已跨越规模化门槛，具备一定的成本优势。")
+
+    # 财务验证
+    if gm > 50:
+        desc_parts.append(f"毛利率 {gm:.1f}% 处于高位，反映出较强的定价权或成本结构优势。")
+    else:
+        desc_parts.append(f"毛利率 {gm:.1f}%，在所处行业中属于{'较优' if gm > 35 else '一般' if gm > 20 else '偏低'}水平。")
+    if roe_val > 20:
+        desc_parts.append(f"ROE {roe_val:.1f}% 验证了管理层对股东资本的高效运用。")
+    elif roe_val > 10:
+        desc_parts.append(f"ROE {roe_val:.1f}%，资本回报尚可但未达到'护城河级'水平。")
+    else:
+        desc_parts.append(f"ROE {roe_val:.1f}% 偏低，可能表明缺乏显著竞争壁垒或处于重资产行业。")
+
+    # 诚实结论
+    if not tags:
+        tags.append("无明显护城河")
+        desc_parts.append("综合来看，该公司所在行业竞争较为充分，暂未发现显著的、难以复制的结构性优势。但这不意味着公司经营不佳，只是缺乏传统意义上的'护城河'特征。")
+
+    return tags, " ".join(desc_parts)
+
+
+def _business_risks(name: str, industry: str, sector: str, summary: str, d: dict) -> str:
+    """生成具体业务风险."""
+    # 知识库中如有特定风险，优先使用
+    ticker = d.get("ticker", "")
+    kb_risks = {
+        "GOOGL": ["<strong>反垄断：</strong>美欧持续施压，可能被迫拆分广告业务或改变默认搜索引擎协议。",
+                  "<strong>AI 颠覆搜索：</strong>ChatGPT 等 AI 问答可能分流传统搜索流量，广告模式面临重构。",
+                  "<strong>广告周期：</strong>广告收入受宏观经济周期影响大，衰退期客户削减预算。"],
+        "GOOG": ["<strong>反垄断：</strong>美欧持续施压，可能被迫拆分广告业务。",
+                 "<strong>AI 颠覆搜索：</strong>AI 问答可能分流传统搜索流量。"],
+        "AAPL": ["<strong>iPhone 依赖：</strong>过半收入来自 iPhone，智能手机市场饱和是最大风险。",
+                 "<strong>中国供应链/市场：</strong>地缘政治风险，生产和销售两端都受影响。",
+                 "<strong>监管压力：</strong>App Store 抽成模式被欧盟 DMA 法案挑战。"],
+        "MSFT": ["<strong>AI 投入回报不确定：</strong>巨额 AI 基础设施投资，商业化前景尚需验证。",
+                 "<strong>云竞争：</strong>AWS 领先、Google Cloud 追赶，价格战可能压缩利润率。"],
+        "AMZN": ["<strong>电商利润率薄：</strong>零售业务利润极低（~2-3%），严重依赖 AWS 输血。",
+                 "<strong>反垄断：</strong>FTC 已起诉亚马逊，指控其利用垄断地位压制第三方卖家。"],
+        "META": ["<strong>广告依赖：</strong>近乎 100% 收入来自广告，经济周期敏感。",
+                 "<strong>隐私政策：</strong>Apple ATT 等隐私政策持续削弱广告精准度。",
+                 "<strong>TikTok 竞争：</strong>短视频争夺用户时长和广告预算。"],
+        "NFLX": ["<strong>流媒体内卷：</strong>Disney+/Max/Prime Video/Apple TV+ 激烈竞争，内容成本持续攀升。",
+                 "<strong>订阅天花板：</strong>核心市场渗透率已高，增长越来越依赖新兴市场低价套餐。"],
+        "NVDA": ["<strong>AI 投资周期：</strong>如果企业 AI 支出放缓，GPU 需求可能骤降。",
+                 "<strong>竞争：</strong>AMD/Intel/自研芯片（Google TPU/AWS Trainium）威胁市场份额。",
+                 "<strong>估值泡沫：</strong>市场已定价极高的增长预期，任何不及预期都可能导致剧烈回调。"],
+        "TSLA": ["<strong>需求放缓：</strong>电动车市场竞争白热化，降价促销压缩利润率。",
+                 "<strong>马斯克风险：</strong>创始人行为和言论可能影响品牌形象和消费者信心。",
+                 "<strong>FSD 兑现风险：</strong>完全自动驾驶的商业化时间表反复推迟。"],
+        "TSM": ["<strong>地缘政治：</strong>台湾海峡紧张局势是台积电最大风险，一旦冲突将切断全球芯片供应。",
+                "<strong>客户集中：</strong>苹果和英伟达占收入过大比例，任一客户流失都影响重大。"],
+        "APH": ["<strong>客户订单波动：</strong>作为零部件供应商，客户库存调整和终端需求变化会直接冲击订单量。",
+                "<strong>行业竞争：</strong>连接器市场虽然认证门槛高，但并非独家——TE Connectivity、Molex 等对手同样实力强劲。",
+                "<strong>汽车电子化依赖：</strong>汽车业务增长的核心逻辑是电动化/智能化，如果进展不及预期，增长引擎会熄火。",
+                "<strong>收购整合：</strong>安费诺历史上靠大量收购做大规模，整合失败或商誉减值风险始终存在。"],
+    }
+    if kb_risks.get(ticker):
+        return "\n".join(f"<li>{r}</li>" for r in kb_risks[ticker])
+
+    # 通用风险推断
+    risks = []
+    il = industry.lower()
+    de = d.get("debt_to_equity")
+
+    if any(kw in il for kw in ["tech", "software", "internet", "semiconductor"]):
+        risks.append("<strong>技术迭代风险：</strong>技术路线或商业模式变化可能快速侵蚀现有优势。")
+    if any(kw in il for kw in ["consumer", "retail", "restaurant", "entertainment"]):
+        risks.append("<strong>消费者偏好变化：</strong>品牌或产品可能因代际更替或潮流变迁而失宠。")
+    if any(kw in il for kw in ["pharma", "biotech", "drug"]):
+        risks.append("<strong>专利悬崖：</strong>核心产品专利到期后仿制药或生物类似药将冲击收入。")
+    if any(kw in il for kw in ["financial", "bank", "insurance"]):
+        risks.append("<strong>金融周期：</strong>利率变化、信贷周期和系统性风险直接影响盈利能力。")
+    if any(kw in il for kw in ["energy", "oil", "mining"]):
+        risks.append("<strong>价格波动：</strong>大宗商品价格受全球供需和地缘政治影响，企业无法控制。")
+    if de is not None and de > 100:
+        risks.append(f"<strong>杠杆风险：</strong>负债权益比 {de:.0f}%，高杠杆在经济下行时风险放大。")
+
+    # 补充财务数据驱动的风险信号
+    if len(risks) < 2:
+        rev_g = d.get("revenue_growth") or 0
+        gm = d.get("gross_margins") or 0
+        pm = d.get("profit_margins") or 0
+        if rev_g < 3 and rev_g is not None:
+            risks.append(f"<strong>增长乏力：</strong>收入增速仅 {rev_g:.1f}%，可能面临市场份额流失或行业天花板。")
+        if gm < 20 and gm > 0:
+            risks.append(f"<strong>利润微薄：</strong>毛利率仅 {gm:.1f}%，原材料、人工、运费的任何波动都可能严重冲击利润。")
+        if pm is not None and pm < 5 and pm > 0:
+            risks.append(f"<strong>盈利脆弱：</strong>净利率仅 {pm:.1f}%，容错空间极小。")
+
+    return "\n".join(f"<li>{r}</li>" for r in risks)
 
 
 def _render_section_2(d: dict, is_etf: bool, q_rows: str, eps_rows: str) -> str:
@@ -871,7 +1351,7 @@ def _render_scoring_section(ticker: str, scored: dict | None) -> str:
     """渲染 StockScope 评分框架 HTML 片段。"""
     if not scored:
         return """<section>
-  <h2><span class="num">10</span> StockScope 评分框架（如何选股）</h2>
+  <h2><span class="num">11</span> StockScope 评分框架（如何选股）</h2>
   <div class="info-card" style="text-align:center;color:var(--text-secondary);padding:40px;">
     评分数据获取失败，请检查网络后重试。
   </div>
@@ -947,7 +1427,7 @@ def _render_scoring_section(ticker: str, scored: dict | None) -> str:
     dd_str = f"{dd:+.1%}" if dd is not None else "—"
 
     return f"""<section>
-  <h2><span class="num">10</span> StockScope 评分框架（如何选股）</h2>
+  <h2><span class="num">11</span> StockScope 评分框架（如何选股）</h2>
 
   <!-- 综合信号 -->
   <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
