@@ -75,6 +75,12 @@ def create_app(*, output_dir: str) -> FastAPI:
             return filepath.read_text(encoding="utf-8")
         return HTMLResponse(content="<h1>404</h1>", status_code=404)
 
+    @app.get("/us-indicators", response_class=HTMLResponse)
+    def us_indicators():
+        from stockscope.us_indicators import get_us_indicators_page
+
+        return get_us_indicators_page()
+
     return app
 
 
